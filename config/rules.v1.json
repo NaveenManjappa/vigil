@@ -1,0 +1,16 @@
+{
+  "version": "v1",
+  "riskPeriodDays": 7,
+  "bands": { "medium": 30, "high": 60, "critical": 90 },
+  "rules": [
+    {
+      "id": "R1",
+      "name": "Recovery takeover",
+      "kind": "sequence",
+      "steps": [["PasswordReset"], ["MfaEnrolled"]],
+      "windowMinutes": 60,
+      "points": 30,
+      "explanation": "Password reset then MFA enrolment, {elapsed} apart; window {window}"
+    }
+  ]
+}

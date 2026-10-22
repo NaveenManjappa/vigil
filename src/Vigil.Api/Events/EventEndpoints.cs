@@ -7,7 +7,7 @@ public static class EventEndpoints
     public static IEndpointRouteBuilder MapEventEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/events", IngestAsync)
-            .WithSummary("Ingest a batch of portal events (a single event is a batch of one).");
+            .WithSummary("Ingest a batch of portal events (a single event is a batch of one) and score their accounts.");
 
         app.MapGet("/accounts/{accountId}/timeline", async (string accountId, EventStore store, CancellationToken ct) =>
                 TypedResults.Ok(await store.GetTimelineAsync(accountId, ct)))
@@ -16,7 +16,7 @@ public static class EventEndpoints
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(PortalEventRequest[] batch, EventStore store, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(PortalEventRequest[] batch, Ingestion ingestion, CancellationToken ct)
     {
         // Whole-batch validation: a source either sends a clean batch or fixes it and resends,
         // so we never have to explain which half of a batch was kept.
@@ -28,7 +28,7 @@ public static class EventEndpoints
         if (batch.Length == 0) errors["batch"] = ["must contain at least one event"];
         if (errors.Count > 0) return TypedResults.ValidationProblem(errors);
 
-        var result = await store.AppendAsync(batch.Select(e => e.ToDomain()).ToList(), ct);
+        var result = await ingestion.IngestAsync(batch.Select(e => e.ToDomain()).ToList(), ct);
         return TypedResults.Ok(result);
     }
 }

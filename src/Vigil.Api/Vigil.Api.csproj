@@ -8,6 +8,11 @@
     <ProjectReference Include="..\Vigil.ServiceDefaults\Vigil.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Vigil.Domain\Vigil.Domain.csproj" />
     <ProjectReference Include="..\Vigil.Infrastructure\Vigil.Infrastructure.csproj" />
+    <ProjectReference Include="..\Vigil.Detection\Vigil.Detection.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\config\rules.v1.json" Link="config\rules.v1.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

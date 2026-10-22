@@ -23,3 +23,31 @@ _Avoid_: feed, upstream
 **Scenario**:
 A scripted Account journey with a known label (fraud or genuine), replayed to exercise detection.
 _Avoid_: test case, fixture, persona (a persona is a template that generates many scenarios)
+
+**Rule**:
+A named pattern of Portal Events on one Account that suggests fraud, worth a fixed number of points when it matches. A sequence Rule is two steps, A then B, inside a Window; each step may list alternative event types.
+_Avoid_: check, detector, signal
+
+**Window**:
+The longest time a Rule allows between its two steps, measured on OccurredAt.
+_Avoid_: timeout, period (the risk period is a different thing)
+
+**Rule Hit**:
+One Rule matching on an Account, recorded with its evidence EventIds, the time of the event that completed it (its trigger time) and a plain-English explanation. Never rewritten once stored.
+_Avoid_: match, finding, reason code
+
+**Score**:
+The sum of the points of the distinct Rules hit in an Alert. A Rule that hits more than once still counts once.
+_Avoid_: risk score (in code), rating
+
+**Risk Band**:
+The label a Score falls into: Low, Medium, High or Critical, by thresholds set in the rules file.
+_Avoid_: severity, level, priority
+
+**Alert**:
+Detection's verdict on an Account: its Rule Hits, their Score, its Risk Band and the Rules Version that produced them.
+_Avoid_: flag, incident, case (a Case is the work item an analyst picks up)
+
+**Rules Version**:
+The version string of the rules file in force when an Alert was scored, stored on the Alert so the reasoning behind any past Alert can be reproduced.
+_Avoid_: config version, ruleset id

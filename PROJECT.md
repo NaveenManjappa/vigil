@@ -554,6 +554,8 @@ Each stage ends with a **"Done when"** checklist and a short **"Explain it"** li
 - Full simulator personas (Section 10.1) with seeded generation and simulated clock.
 - Unit tests for all edge cases in 7.4.
 
+> **Stage 1 decisions (grill session, 2026-10-22):** detection is one pure entry point, `Detector.Detect(timeline, ruleSet)`, run synchronously inside the ingest transaction for every Account in the batch, under a per-Account transaction-scoped Postgres advisory lock. A sequence Rule is two steps (A → B), each with alternative event types; B is the event being evaluated and A is the latest earlier event matching step A; Windows are inclusive. Each Rule Hit stores evidence EventIds (native `uuid[]`), its trigger time and an explanation; stored hits are never rewritten. The holding-value tie-break in Section 7.3 is dropped for Stage 1, because there is no Account entity yet: Cases are ordered by band, then Score, then time opened. See GLOSSARY.md, ADR-0001 and ADR-0002.
+
 **Done when**
 - [ ] Margaret is flagged **High at the email change, before any bank change**; Mr Patel stays Low.
 - [ ] `GET /alerts/{id}` shows every rule hit with evidence event IDs.

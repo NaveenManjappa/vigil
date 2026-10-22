@@ -1,8 +1,11 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using Vigil.Api.Alerts;
 using Vigil.Api.Events;
+using Vigil.Domain.Detection;
 using Vigil.Infrastructure;
+using Vigil.Infrastructure.Alerts;
 using Vigil.Infrastructure.Events;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -10,8 +13,14 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.AddNpgsqlDbContext<VigilDbContext>("vigil");
 
+// Loaded once at startup so a malformed rules file stops the API rather than failing mid-ingest (ADR-0002).
+var rulesPath = builder.Configuration["Rules:Path"] ?? throw new InvalidOperationException("Rules:Path is not configured.");
+builder.Services.AddSingleton(RuleSet.Load(Path.Combine(AppContext.BaseDirectory, rulesPath)));
+
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<EventStore>();
+builder.Services.AddScoped<AlertStore>();
+builder.Services.AddScoped<Ingestion>();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -32,6 +41,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapDefaultEndpoints();
 app.MapEventEndpoints();
+app.MapAlertEndpoints();
 
 app.Run();
 
