@@ -3,13 +3,15 @@ using Vigil.Domain.Events;
 namespace Vigil.Simulator.Scenarios;
 
 /// <summary>
-/// PROJECT.md Section 3.1: a fraudster with Margaret's email password takes over her account
-/// from a new device in Romania, then tries to redirect payouts the next day.
+/// PROJECT.md Section 3.1: after months of logins from her laptop in Reading, a fraudster with Margaret's
+/// email password takes over her account from a new device in Romania, then tries to redirect payouts the next day.
 /// </summary>
 public sealed class MargaretAto : Scenario
 {
     private const string Account = "ACC-MARGARET";
     private const string Holder = "HOLDER-MARGARET";
+    private const string UsualLaptop = "D-MARGARET-LAPTOP";
+    private const string ReadingIp = "203.0.113.51"; // documentation range, not a real address
     private const string FraudDevice = "D-77";
     private const string RomanianIp = "198.51.100.77"; // documentation range, not a real address
 
@@ -17,6 +19,7 @@ public sealed class MargaretAto : Scenario
 
     public override IReadOnlyList<PortalEvent> Events() =>
     [
+        .. Baseline(Account, Holder, UsualLaptop, ReadingIp, "GB"),
         Fraudster(1, EventType.PasswordReset, Anchor),
         Fraudster(2, EventType.MfaEnrolled, Anchor.AddMinutes(4)),
         Fraudster(3, EventType.EmailChanged, Anchor.AddMinutes(10), new() { ["NewEmail"] = "m.attacker@example.net" }),

@@ -29,7 +29,7 @@ A template of Holder behaviour from PROJECT.md Section 10.1, such as quiet holde
 _Avoid_: profile, archetype, scenario
 
 **Baseline**:
-A generated Account's history of ordinary logins from the Holder's usual device and country, before its Persona's journey begins, so first-sighting rules have something to compare against.
+An Account's history of ordinary logins from the Holder's usual device and country, before its Persona's or Scenario's journey begins, so a First Sighting has something to compare against.
 _Avoid_: warm-up, history (alone), normal profile
 
 **Label**:
@@ -41,8 +41,12 @@ A seeded, reproducible set of generated Accounts, each with its Portal Events an
 _Avoid_: corpus, test data, fixture
 
 **Rule**:
-A named pattern of Portal Events on one Account that suggests fraud, worth a fixed number of points when it matches. A sequence Rule is two steps, A then B, inside a Window; each step may list alternative event types.
+A named pattern of Portal Events on one Account that suggests fraud, worth a fixed number of points when it matches. A sequence Rule is two steps, A then B, inside a Window; each step may list alternative event types. A first-sighting Rule (R0) matches a First Sighting and has no steps or Window.
 _Avoid_: check, detector, signal
+
+**First Sighting**:
+A Portal Event whose device or country has not appeared on any earlier event of its Account, which Rule R0 scores. An Account's first event is never one, because there is nothing yet to compare against, and a new device with a new country on the same event is one First Sighting, not two.
+_Avoid_: new device (alone), anomaly, unknown device
 
 **Window**:
 The longest time a Rule allows between its two steps, measured on OccurredAt.

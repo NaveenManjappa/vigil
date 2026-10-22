@@ -4,6 +4,13 @@
   "bands": { "medium": 30, "high": 60, "critical": 90 },
   "rules": [
     {
+      "id": "R0",
+      "name": "New device / new country",
+      "kind": "firstSighting",
+      "points": 10,
+      "explanation": "First sighting on this Account: {sighting}"
+    },
+    {
       "id": "R1",
       "name": "Recovery takeover",
       "kind": "sequence",

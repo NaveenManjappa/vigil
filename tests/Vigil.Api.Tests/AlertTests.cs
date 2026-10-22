@@ -180,7 +180,7 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var rules = (await _client.GetFromJsonAsync<RuleSet>("/rules", Json, Ct))!;
 
         Assert.Equal("v1", rules.Version);
-        Assert.Equal(["R1", "R2", "R3", "R4", "R5", "R6"], rules.Rules.Select(r => r.Id));
+        Assert.Equal(["R0", "R1", "R2", "R3", "R4", "R5", "R6"], rules.Rules.Select(r => r.Id));
         var r1 = Assert.Single(rules.Rules, r => r.Id == "R1");
         Assert.Equal(60, r1.WindowMinutes);
         Assert.Equal(30, r1.Points);

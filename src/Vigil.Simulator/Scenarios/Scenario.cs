@@ -13,4 +13,13 @@ public abstract class Scenario
 
     /// <summary>Stable EventId for the n-th step of this scenario.</summary>
     protected Guid IdFor(int step) => DeterministicGuid.Create($"{Name}/{step}");
+
+    /// <summary>
+    /// A login a week for the 13 weeks (about 90 days) before the anchor, from the Holder's usual device and country,
+    /// so the scripted journey is compared against a Baseline rather than being the Account's first sight of anything.
+    /// </summary>
+    protected IEnumerable<PortalEvent> Baseline(string accountId, string holderId, string device, string ip, string country) =>
+        Enumerable.Range(1, 13).Select(week => new PortalEvent(
+            DeterministicGuid.Create($"{Name}/baseline/{week}"), accountId, holderId, EventType.LoginSucceeded,
+            Anchor.AddDays(-7 * (14 - week)), device, ip, country, "web", new Dictionary<string, string>()));
 }

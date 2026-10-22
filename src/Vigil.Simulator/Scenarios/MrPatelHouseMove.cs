@@ -17,6 +17,7 @@ public sealed class MrPatelHouseMove : Scenario
 
     public override IReadOnlyList<PortalEvent> Events() =>
     [
+        .. Baseline(Account, Holder, UsualLaptop, UsualIp, "GB"),
         Patel(1, EventType.AddressChanged, Anchor, new() { ["NewPostcode"] = "RG1 8AA" }),
         Patel(2, EventType.PhoneChanged, Anchor.AddDays(2), new() { ["NewPhone"] = "+44 7700 900123" }),
     ];

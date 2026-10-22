@@ -30,7 +30,13 @@ public static class Detector
         {
             foreach (var rule in ruleSet.Rules)
             {
-                if (SequenceMatcher.Match(rule, ordered, i) is { } hit) candidates.Add(hit);
+                var hit = rule.Kind switch
+                {
+                    RuleKind.Sequence => SequenceMatcher.Match(rule, ordered, i),
+                    RuleKind.FirstSighting => FirstSighting.Match(rule, ordered, i),
+                    _ => throw new ArgumentOutOfRangeException(nameof(rule), rule.Kind, null),
+                };
+                if (hit is not null) candidates.Add(hit);
             }
         }
 

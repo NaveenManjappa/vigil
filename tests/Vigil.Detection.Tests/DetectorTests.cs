@@ -392,6 +392,58 @@ public sealed class DetectorTests
         Assert.Equal("v0", alert.RulesVersion);
     }
 
+    private static PortalEvent Login(DateTimeOffset at, string device, string country) =>
+        Event(EventType.LoginSucceeded, at) with { DeviceId = device, Country = country };
+
+    [Fact]
+    public void An_accounts_first_event_is_no_first_sighting_because_there_is_no_baseline_to_compare_against()
+    {
+        Assert.Empty(Detector.Detect([Login(Monday, "D-77", "RO")], Rules));
+    }
+
+    [Fact]
+    public void An_event_from_a_device_not_seen_before_on_the_account_is_a_first_sighting()
+    {
+        var usual = Login(Monday, "D-1", "GB");
+        var reset = Event(EventType.PasswordReset, Monday.AddDays(30)) with { DeviceId = "D-77" };
+
+        var hit = Assert.Single(Assert.Single(Detector.Detect([usual, reset], Rules)).Hits);
+
+        Assert.Equal("R0", hit.RuleId);
+        Assert.Equal(10, hit.Points);
+        Assert.Equal([reset.EventId], hit.EvidenceEventIds);
+        Assert.Equal(reset.OccurredAt, hit.TriggeredAt);
+        Assert.Equal("First sighting on this Account: new device D-77", hit.Explanation);
+    }
+
+    [Fact]
+    public void An_event_from_a_country_not_seen_before_on_the_account_is_a_first_sighting()
+    {
+        // The Holder's own laptop, taken abroad.
+        var usual = Login(Monday, "D-1", "GB");
+        var abroad = Login(Monday.AddDays(30), "D-1", "FR");
+
+        var hit = Assert.Single(Assert.Single(Detector.Detect([usual, abroad], Rules)).Hits);
+
+        Assert.Equal("R0", hit.RuleId);
+        Assert.Equal([abroad.EventId], hit.EvidenceEventIds);
+        Assert.Equal("First sighting on this Account: new country FR", hit.Explanation);
+    }
+
+    [Fact]
+    public void A_new_device_and_a_new_country_on_the_same_event_are_one_first_sighting()
+    {
+        var usual = Login(Monday, "D-1", "GB");
+        var stranger = Login(Monday.AddDays(30), "D-77", "RO");
+
+        var alert = Assert.Single(Detector.Detect([usual, stranger], Rules));
+
+        var hit = Assert.Single(alert.Hits);
+        Assert.Equal(10, alert.Score);
+        Assert.Equal([stranger.EventId], hit.EvidenceEventIds);
+        Assert.Equal("First sighting on this Account: new device D-77, new country RO", hit.Explanation);
+    }
+
     // RuleHit holds its evidence in a list, which records compare by reference.
     private sealed class RuleHitComparer : IEqualityComparer<RuleHit>
     {
@@ -415,4 +467,16 @@ public sealed class DetectorTests
     [InlineData(90, RiskBand.Critical)]
     public void Band_thresholds_come_from_the_rules_file(int score, RiskBand expected) =>
         Assert.Equal(expected, Rules.Bands.BandFor(score));
+
+    [Fact]
+    public void A_sequence_rule_without_a_window_fails_to_load()
+    {
+        const string json = """
+            { "version": "v1", "riskPeriodDays": 7, "bands": { "medium": 30, "high": 60, "critical": 90 },
+              "rules": [{ "id": "R1", "name": "Recovery takeover", "kind": "sequence",
+                          "steps": [["PasswordReset"], ["MfaEnrolled"]], "points": 30, "explanation": "x" }] }
+            """;
+
+        Assert.Throws<InvalidDataException>(() => RuleSet.Parse(json));
+    }
 }

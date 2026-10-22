@@ -7,22 +7,27 @@ namespace Vigil.Domain.Detection;
 public enum RuleKind
 {
     Sequence,
+    FirstSighting,
 }
 
 /// <summary>
 /// One detection pattern from the rules file. A sequence rule has two steps, A then B,
-/// and each step lists the event types that count as that step.
+/// and each step lists the event types that count as that step. A first-sighting rule has neither steps nor a Window.
 /// </summary>
-/// <param name="Explanation">Template; {elapsed} and {window} are filled in when the rule hits.</param>
+/// <param name="Explanation">
+/// Template; a sequence rule fills in {elapsed} and {window}, a first-sighting rule fills in {sighting}.
+/// </param>
 public sealed record Rule(
     string Id,
     string Name,
     RuleKind Kind,
-    IReadOnlyList<IReadOnlyList<EventType>> Steps,
-    int WindowMinutes,
     int Points,
     string Explanation)
 {
+    public IReadOnlyList<IReadOnlyList<EventType>> Steps { get; init; } = [];
+
+    public int WindowMinutes { get; init; }
+
     [JsonIgnore]
     public TimeSpan Window => TimeSpan.FromMinutes(WindowMinutes);
 }
@@ -59,6 +64,10 @@ public sealed record RuleSet(string Version, int RiskPeriodDays, BandThresholds 
         {
             if (rule.Kind == RuleKind.Sequence && rule.Steps.Count != 2)
                 throw new InvalidDataException($"Rule {rule.Id}: a sequence rule needs exactly two steps.");
+
+            // Steps and Window are optional for first-sighting rules, so the parser no longer insists on them.
+            if (rule.Kind == RuleKind.Sequence && rule.WindowMinutes <= 0)
+                throw new InvalidDataException($"Rule {rule.Id}: a sequence rule needs a positive windowMinutes.");
         }
 
         return rules;

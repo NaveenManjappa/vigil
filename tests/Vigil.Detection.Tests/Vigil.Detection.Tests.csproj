@@ -8,6 +8,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vigil.Detection\Vigil.Detection.csproj" />
+    <!-- For the demo Scenarios, so the story PROJECT.md Section 3 tells is pinned at the Detection seam. -->
+    <ProjectReference Include="..\..\src\Vigil.Simulator\Vigil.Simulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>

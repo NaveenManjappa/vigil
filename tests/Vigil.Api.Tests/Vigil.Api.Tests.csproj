@@ -8,6 +8,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Vigil.Api\Vigil.Api.csproj" />
+    <!-- For the demo Scenarios, posted to the API exactly as the simulator posts them. Aliased because both
+         projects expose a top-level Program, which WebApplicationFactory<Program> must resolve to the API's. -->
+    <ProjectReference Include="..\..\src\Vigil.Simulator\Vigil.Simulator.csproj" Aliases="simulator" />
   </ItemGroup>
 
   <ItemGroup>
