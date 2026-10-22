@@ -29,9 +29,18 @@ internal static class SequenceMatcher
         return new RuleHit(rule.Id, rule.Points, [a.EventId, b.EventId], b.OccurredAt, explanation);
     }
 
-    // Reads the way an analyst would say it: "4 min", "1h", "7d".
-    private static string FormatDuration(TimeSpan t) =>
-        t.TotalDays >= 1 && t.TotalDays % 1 == 0 ? $"{t.TotalDays}d"
-        : t.TotalHours >= 1 && t.TotalHours % 1 == 0 ? $"{t.TotalHours}h"
-        : $"{(int)t.TotalMinutes} min";
+    // Uses the units of the PROJECT.md Section 7.2 table ("4 min", "24h", "72h", "7d"), so an elapsed
+    // time reads directly against its window. One smaller unit is kept ("26h 30 min", "10d 6h"); finer is dropped.
+    private static string FormatDuration(TimeSpan t)
+    {
+        if (t < TimeSpan.FromHours(1)) return $"{t.Minutes} min";
+
+        if (t < TimeSpan.FromDays(7))
+        {
+            var hours = $"{(int)t.TotalHours}h";
+            return t.Minutes == 0 ? hours : $"{hours} {t.Minutes} min";
+        }
+
+        return t.Hours == 0 ? $"{t.Days}d" : $"{t.Days}d {t.Hours}h";
+    }
 }

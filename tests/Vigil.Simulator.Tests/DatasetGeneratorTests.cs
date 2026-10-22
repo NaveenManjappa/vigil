@@ -64,8 +64,8 @@ public sealed class DatasetGeneratorTests
         });
     }
 
-    // The sequence Rules of PROJECT.md Section 7.2 (step A, step B, Window). The rules file holds only some of
-    // them so far, so the spacing is checked against the spec rather than config.
+    // R1–R4 of PROJECT.md Section 7.2 (step A, step B, Window): the takeover steps the slow-burn journey walks
+    // through. Checked against the spec rather than config, so retuning a Window cannot quietly redefine the Persona.
     public static TheoryData<EventType[], EventType[], int> SectionSevenTwoRules => new()
     {
         { [EventType.PasswordReset], [EventType.MfaEnrolled], 60 },

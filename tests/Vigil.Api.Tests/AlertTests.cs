@@ -61,6 +61,39 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_takeover_through_to_a_sale_raises_one_alert_with_a_hit_per_rule()
+    {
+        const string account = "ACC-MULTI";
+        var reset = Event(account, "PasswordReset", Monday);
+        var mfa = Event(account, "MfaEnrolled", Monday.AddMinutes(4));
+        var email = Event(account, "EmailChanged", Monday.AddMinutes(10));
+        var bank = Event(account, "BankDetailsChanged", Monday.AddDays(1));
+        var sale = Event(account, "SaleRequested", Monday.AddDays(2));
+
+        await PostAsync(reset.Body, mfa.Body, email.Body);
+        await PostAsync(bank.Body, sale.Body);
+
+        var summary = Assert.Single(await AlertsAsync(), a => a.AccountId == account);
+        var alert = (await _client.GetFromJsonAsync<AlertDetail>($"/alerts/{summary.Id}", Json, Ct))!;
+
+        Assert.Equal(120, alert.Score);
+        Assert.Equal(RiskBand.Critical, alert.Band);
+        Assert.Collection(alert.Hits,
+            h => AssertHit(h, "R1", 30, [reset.Id, mfa.Id], "Password reset then MFA enrolment, 4 min apart; window 1h"),
+            h => AssertHit(h, "R2", 20, [reset.Id, email.Id], "Password reset then contact change, 10 min apart; window 24h"),
+            h => AssertHit(h, "R3", 30, [email.Id, bank.Id], "Contact change then bank-detail change, 23h 50 min apart; window 72h"),
+            h => AssertHit(h, "R4", 40, [bank.Id, sale.Id], "Bank-detail change then sale or transfer, 24h apart; window 7d"));
+    }
+
+    private static void AssertHit(RuleHit hit, string ruleId, int points, Guid[] evidence, string explanation)
+    {
+        Assert.Equal(ruleId, hit.RuleId);
+        Assert.Equal(points, hit.Points);
+        Assert.Equal(evidence, hit.EvidenceEventIds);
+        Assert.Equal(explanation, hit.Explanation);
+    }
+
+    [Fact]
     public async Task Alerts_can_be_filtered_by_risk_band()
     {
         const string account = "ACC-BAND";
@@ -116,6 +149,7 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var rules = (await _client.GetFromJsonAsync<RuleSet>("/rules", Json, Ct))!;
 
         Assert.Equal("v1", rules.Version);
+        Assert.Equal(["R1", "R2", "R3", "R4", "R5", "R6"], rules.Rules.Select(r => r.Id));
         var r1 = Assert.Single(rules.Rules, r => r.Id == "R1");
         Assert.Equal(60, r1.WindowMinutes);
         Assert.Equal(30, r1.Points);

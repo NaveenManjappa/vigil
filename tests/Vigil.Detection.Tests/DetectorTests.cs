@@ -49,6 +49,179 @@ public sealed class DetectorTests
         Assert.Empty(Detector.Detect(timeline, Rules));
     }
 
+    // One row per alternative in each step, so every listed event type is shown to count.
+    [Theory]
+    [InlineData("R2", EventType.PasswordReset, EventType.EmailChanged, 10, 20, "Password reset then contact change, 10 min apart; window 24h")]
+    [InlineData("R2", EventType.PasswordReset, EventType.PhoneChanged, 10, 20, "Password reset then contact change, 10 min apart; window 24h")]
+    [InlineData("R3", EventType.EmailChanged, EventType.BankDetailsChanged, 90, 30, "Contact change then bank-detail change, 1h 30 min apart; window 72h")]
+    [InlineData("R3", EventType.PhoneChanged, EventType.BankDetailsChanged, 26 * 60, 30, "Contact change then bank-detail change, 26h apart; window 72h")]
+    [InlineData("R3", EventType.AddressChanged, EventType.BankDetailsChanged, 5, 30, "Contact change then bank-detail change, 5 min apart; window 72h")]
+    [InlineData("R4", EventType.BankDetailsChanged, EventType.SaleRequested, 76 * 60, 40, "Bank-detail change then sale or transfer, 76h apart; window 7d")]
+    [InlineData("R4", EventType.BankDetailsChanged, EventType.TransferRequested, 48 * 60, 40, "Bank-detail change then sale or transfer, 48h apart; window 7d")]
+    [InlineData("R5", EventType.AccountRegistered, EventType.BankDetailsChanged, 30, 30, "Registration then bank-detail change, 30 min apart; window 48h")]
+    [InlineData("R6", EventType.AccountRegistered, EventType.SaleRequested, (10 * 24 + 6) * 60, 30, "Registration then sale or transfer, 10d 6h apart; window 14d")]
+    [InlineData("R6", EventType.AccountRegistered, EventType.TransferRequested, 24 * 60, 30, "Registration then sale or transfer, 24h apart; window 14d")]
+    public void A_rule_hits_when_its_second_step_follows_its_first_inside_the_window(
+        string ruleId, EventType stepA, EventType stepB, int minutesApart, int points, string explanation)
+    {
+        var a = Event(stepA, Monday);
+        var b = Event(stepB, Monday.AddMinutes(minutesApart));
+
+        var hit = Assert.Single(Assert.Single(Detector.Detect([a, b], Rules)).Hits);
+
+        Assert.Equal(ruleId, hit.RuleId);
+        Assert.Equal(points, hit.Points);
+        Assert.Equal([a.EventId, b.EventId], hit.EvidenceEventIds);
+        Assert.Equal(explanation, hit.Explanation);
+    }
+
+    public static TheoryData<string, EventType, EventType, int> EveryRule => new()
+    {
+        { "R1", EventType.PasswordReset, EventType.MfaEnrolled, 60 },
+        { "R2", EventType.PasswordReset, EventType.PhoneChanged, 24 * 60 },
+        { "R3", EventType.AddressChanged, EventType.BankDetailsChanged, 72 * 60 },
+        { "R4", EventType.BankDetailsChanged, EventType.TransferRequested, 7 * 24 * 60 },
+        { "R5", EventType.AccountRegistered, EventType.BankDetailsChanged, 48 * 60 },
+        { "R6", EventType.AccountRegistered, EventType.SaleRequested, 14 * 24 * 60 },
+    };
+
+    [Theory]
+    [MemberData(nameof(EveryRule))]
+    public void A_second_step_exactly_on_the_window_boundary_hits(string ruleId, EventType stepA, EventType stepB, int windowMinutes)
+    {
+        var timeline = new[] { Event(stepA, Monday), Event(stepB, Monday.AddMinutes(windowMinutes)) };
+
+        var hit = Assert.Single(Assert.Single(Detector.Detect(timeline, Rules)).Hits);
+        Assert.Equal(ruleId, hit.RuleId);
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryRule))]
+    public void A_second_step_one_second_past_the_window_does_not_hit(string _, EventType stepA, EventType stepB, int windowMinutes)
+    {
+        var timeline = new[] { Event(stepA, Monday), Event(stepB, Monday.AddMinutes(windowMinutes).AddSeconds(1)) };
+
+        Assert.Empty(Detector.Detect(timeline, Rules));
+    }
+
+    [Theory]
+    [MemberData(nameof(EveryRule))]
+    public void Steps_in_the_wrong_order_do_not_hit(string _, EventType stepA, EventType stepB, int windowMinutes)
+    {
+        var timeline = new[] { Event(stepB, Monday), Event(stepA, Monday.AddMinutes(windowMinutes / 2)) };
+
+        Assert.Empty(Detector.Detect(timeline, Rules));
+    }
+
+    [Fact]
+    public void Step_A_is_the_latest_matching_event_before_step_B()
+    {
+        var oldReset = Event(EventType.PasswordReset, Monday);
+        var reset = Event(EventType.PasswordReset, Monday.AddHours(3));
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddHours(3).AddMinutes(20));
+
+        var hit = Assert.Single(Assert.Single(Detector.Detect([oldReset, reset, mfa], Rules)).Hits);
+
+        Assert.Equal([reset.EventId, mfa.EventId], hit.EvidenceEventIds);
+    }
+
+    [Fact]
+    public void Events_are_paired_by_when_they_happened_not_by_arrival_order()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+
+        // The MFA enrolment reached Vigil first; the source delayed the reset.
+        var hit = Assert.Single(Assert.Single(Detector.Detect([mfa, reset], Rules)).Hits);
+
+        Assert.Equal("R1", hit.RuleId);
+        Assert.Equal([reset.EventId, mfa.EventId], hit.EvidenceEventIds);
+    }
+
+    [Fact]
+    public void Events_at_the_same_instant_give_the_same_alert_whatever_order_they_arrive_in()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday);
+
+        var forwards = Detector.Detect([reset, mfa], Rules);
+        var backwards = Detector.Detect([mfa, reset], Rules);
+
+        Assert.Equal(forwards.Count, backwards.Count);
+        Assert.Equal(forwards.SelectMany(a => a.Hits), backwards.SelectMany(a => a.Hits), RuleHitComparer.Instance);
+    }
+
+    [Fact]
+    public void A_duplicated_event_has_no_effect()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+
+        var once = Assert.Single(Detector.Detect([reset, mfa], Rules));
+        var twice = Assert.Single(Detector.Detect([reset, mfa, reset, mfa], Rules));
+
+        Assert.Equal(once.Score, twice.Score);
+        Assert.Equal(once.Hits, twice.Hits, RuleHitComparer.Instance);
+    }
+
+    [Fact]
+    public void A_rule_that_fires_repeatedly_counts_once_and_keeps_its_first_evidence()
+    {
+        var firstReset = Event(EventType.PasswordReset, Monday);
+        var firstMfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var secondReset = Event(EventType.PasswordReset, Monday.AddHours(5));
+        var secondMfa = Event(EventType.MfaEnrolled, Monday.AddHours(5).AddMinutes(2));
+
+        var alert = Assert.Single(Detector.Detect([firstReset, firstMfa, secondReset, secondMfa], Rules));
+
+        Assert.Equal(30, alert.Score);
+        var hit = Assert.Single(alert.Hits);
+        Assert.Equal([firstReset.EventId, firstMfa.EventId], hit.EvidenceEventIds);
+    }
+
+    [Fact]
+    public void Hits_from_different_rules_add_up_to_one_alert()
+    {
+        // Margaret's takeover: reset, new MFA, new email, new bank details, then a sale.
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
+        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(1));
+        var sale = Event(EventType.SaleRequested, Monday.AddDays(2));
+
+        var alert = Assert.Single(Detector.Detect([reset, mfa, email, bank, sale], Rules));
+
+        Assert.Equal(["R1", "R2", "R3", "R4"], alert.Hits.Select(h => h.RuleId));
+        Assert.Equal(120, alert.Score);
+        Assert.Equal(RiskBand.Critical, alert.Band);
+        Assert.Equal([email.EventId, bank.EventId], alert.Hits.Single(h => h.RuleId == "R3").EvidenceEventIds);
+    }
+
+    [Fact]
+    public void A_resent_event_with_different_details_is_ignored_like_the_event_store_ignores_it()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddHours(2));
+
+        // Same EventId, but now claiming the reset was ten minutes before the MFA enrolment.
+        var resent = reset with { OccurredAt = Monday.AddHours(2).AddMinutes(-10) };
+
+        Assert.Empty(Detector.Detect([reset, mfa, resent], Rules));
+    }
+
+    // RuleHit holds its evidence in a list, which records compare by reference.
+    private sealed class RuleHitComparer : IEqualityComparer<RuleHit>
+    {
+        public static readonly RuleHitComparer Instance = new();
+
+        public bool Equals(RuleHit? x, RuleHit? y) =>
+            x is not null && y is not null
+            && (x.RuleId, x.Points, x.TriggeredAt, x.Explanation) == (y.RuleId, y.Points, y.TriggeredAt, y.Explanation)
+            && x.EvidenceEventIds.SequenceEqual(y.EvidenceEventIds);
+
+        public int GetHashCode(RuleHit hit) => hit.RuleId.GetHashCode();
+    }
+
     [Theory]
     [InlineData(0, RiskBand.Low)]
     [InlineData(29, RiskBand.Low)]
