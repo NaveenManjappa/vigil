@@ -61,6 +61,6 @@ public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
     public async Task<StoredAlert?> FindAsync(Guid alertId, CancellationToken ct = default) =>
         await db.Alerts
             .AsNoTracking()
-            .Include(a => a.Hits.OrderBy(h => h.TriggeredAt))
+            .Include(a => a.Hits.OrderBy(h => h.TriggeredAt).ThenBy(h => h.Id))
             .SingleOrDefaultAsync(a => a.AlertId == alertId, ct);
 }

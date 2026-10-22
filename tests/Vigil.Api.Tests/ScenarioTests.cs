@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using simulator::Vigil.Simulator.Scenarios;
 using Vigil.Api.Alerts;
+using Vigil.Api.Cases;
+using Vigil.Domain.Cases;
 using Vigil.Domain.Detection;
 using Vigil.Domain.Events;
 
@@ -23,6 +25,9 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
 
     private async Task<List<AlertSummary>> AlertsForAsync(string accountId) =>
         (await _client.GetFromJsonAsync<List<AlertSummary>>("/alerts", Json, Ct))!.Where(a => a.AccountId == accountId).ToList();
+
+    private async Task<List<CaseSummary>> CasesForAsync(string accountId) =>
+        (await _client.GetFromJsonAsync<List<CaseSummary>>("/cases", Json, Ct))!.Where(c => c.AccountId == accountId).ToList();
 
     [Fact]
     public async Task Margaret_reaches_High_at_the_email_change_before_any_bank_change()
@@ -51,6 +56,10 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
         Assert.Equal(email.OccurredAt, r2.TriggeredAt);
         Assert.Equal(60, alert.Hits.Where(h => h.TriggeredAt <= email.OccurredAt).Sum(h => h.Points));
         Assert.True(email.OccurredAt < bank.OccurredAt);
+
+        var @case = Assert.Single(await CasesForAsync("ACC-MARGARET"));
+        Assert.Equal(CaseStatus.Open, @case.Status);
+        Assert.Equal(summary.Id, @case.AlertId);
     }
 
     [Fact]
