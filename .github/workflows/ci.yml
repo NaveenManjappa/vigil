@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  checks: write # test-reporter publishes results as a check run
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - run: dotnet restore
+
+      - run: dotnet build --no-restore --configuration Release
+
+      # Testcontainers uses the runner's Docker daemon; no secrets or LLM calls are needed.
+      - run: dotnet test --no-build --configuration Release --report-xunit-trx --results-directory TestResults
+
+      - uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          name: Test results
+          path: TestResults/*.trx
+          reporter: dotnet-trx
