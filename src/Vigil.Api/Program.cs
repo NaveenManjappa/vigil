@@ -2,10 +2,12 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
 using Vigil.Api.Alerts;
+using Vigil.Api.Cases;
 using Vigil.Api.Events;
 using Vigil.Domain.Detection;
 using Vigil.Infrastructure;
 using Vigil.Infrastructure.Alerts;
+using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,6 +22,7 @@ builder.Services.AddSingleton(RuleSet.Load(Path.Combine(AppContext.BaseDirectory
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<EventStore>();
 builder.Services.AddScoped<AlertStore>();
+builder.Services.AddScoped<CaseStore>();
 builder.Services.AddScoped<Ingestion>();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
@@ -42,6 +45,7 @@ if (app.Environment.IsDevelopment())
 app.MapDefaultEndpoints();
 app.MapEventEndpoints();
 app.MapAlertEndpoints();
+app.MapCaseEndpoints();
 
 app.Run();
 

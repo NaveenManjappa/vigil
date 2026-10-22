@@ -95,6 +95,31 @@ namespace Vigil.Infrastructure.Migrations
                     b.ToTable("rule_hits", (string)null);
                 });
 
+            modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredCase", b =>
+                {
+                    b.Property<Guid>("CaseId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("AlertId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("OpenedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("CaseId");
+
+                    b.HasIndex("AlertId")
+                        .IsUnique();
+
+                    b.ToTable("cases", (string)null);
+                });
+
             modelBuilder.Entity("Vigil.Infrastructure.Events.StoredEvent", b =>
                 {
                     b.Property<Guid>("EventId")
@@ -159,8 +184,19 @@ namespace Vigil.Infrastructure.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredCase", b =>
+                {
+                    b.HasOne("Vigil.Infrastructure.Alerts.StoredAlert", null)
+                        .WithOne("Case")
+                        .HasForeignKey("Vigil.Infrastructure.Cases.StoredCase", "AlertId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Vigil.Infrastructure.Alerts.StoredAlert", b =>
                 {
+                    b.Navigation("Case");
+
                     b.Navigation("Hits");
                 });
 #pragma warning restore 612, 618

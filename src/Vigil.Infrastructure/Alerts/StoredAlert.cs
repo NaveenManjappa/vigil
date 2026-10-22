@@ -1,4 +1,5 @@
 using Vigil.Domain.Detection;
+using Vigil.Infrastructure.Cases;
 
 namespace Vigil.Infrastructure.Alerts;
 
@@ -13,6 +14,7 @@ public sealed class StoredAlert
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; set; }
     public List<StoredRuleHit> Hits { get; init; } = [];
+    public StoredCase? Case { get; set; }
 
     public Alert ToDomain() => new(AccountId, Score, Band, RulesVersion, Hits.Select(h => h.ToDomain()).ToList());
 }

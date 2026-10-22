@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
+using Vigil.Domain.Cases;
 using Vigil.Domain.Detection;
+using Vigil.Infrastructure.Cases;
 
 namespace Vigil.Infrastructure.Alerts;
 
@@ -8,12 +10,14 @@ public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
     /// <summary>
     /// Hands the Account's stored Alerts to <paramref name="detect"/> and persists what it adds. Detection
     /// only ever extends stored Alerts (ADR-0013), so this appends hits and Alerts and never rewrites a stored hit.
+    /// An Alert that reaches High gets a Case the first time only; reaching Critical later just raises its Case's priority.
     /// </summary>
     public async Task SaveAsync(
         string accountId, Func<IReadOnlyList<Alert>, IReadOnlyList<Alert>> detect, CancellationToken ct = default)
     {
         var stored = await db.Alerts
             .Include(a => a.Hits.OrderBy(h => h.TriggeredAt).ThenBy(h => h.Id))
+            .Include(a => a.Case)
             .Where(a => a.AccountId == accountId)
             .OrderBy(a => a.CreatedAt).ThenBy(a => a.AlertId)
             .ToListAsync(ct);
@@ -38,6 +42,9 @@ public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
             target.Score = alert.Score;
             target.Band = alert.Band;
             target.UpdatedAt = now;
+
+            if (target.Band >= RiskBand.High && target.Case is null)
+                target.Case = new StoredCase { Status = CaseStatus.Open, OpenedAt = now };
         }
 
         await db.SaveChangesAsync(ct);

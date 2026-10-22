@@ -8,7 +8,7 @@ Vigil watches investor-portal account journeys and flags account takeover and re
 
 **Stage 0 — Foundations.** Aspire runs Postgres, Neo4j and the API. Portal Events are ingested idempotently and the simulator replays two scripted scenarios. Detection starts in Stage 1.
 
-**Stage 1 — Deterministic MVP (in progress).** Each ingest scores its Accounts against `config/rules.v1.json` and stores an Alert with Rule Hits and evidence EventIds: `GET /alerts?band=`, `GET /alerts/{id}`, `GET /rules`.
+**Stage 1 — Deterministic MVP (in progress).** Each ingest scores its Accounts against `config/rules.v1.json` and stores an Alert with Rule Hits and evidence EventIds; an Alert reaching High opens a Case: `GET /alerts?band=`, `GET /alerts/{id}`, `GET /cases?status=`, `GET /rules`.
 
 ## Quick start
 
@@ -54,7 +54,7 @@ API tests start a throwaway Postgres container via Testcontainers.
 | `src/Vigil.Domain` | Portal Event, rule set, Rule Hit and Alert records |
 | `src/Vigil.Detection` | Rules engine: timeline + rule set → Alerts (pure) |
 | `src/Vigil.Infrastructure` | EF Core event and alert stores, migrations |
-| `src/Vigil.Api` | Ingestion, timeline, alert and rules endpoints |
+| `src/Vigil.Api` | Ingestion, timeline, alert, case and rules endpoints |
 | `src/Vigil.Simulator` | Scripted Scenarios and the seeded Persona Dataset generator |
 | `tests/Vigil.Detection.Tests` | Detection tests against the shipped rules file |
 | `tests/Vigil.Simulator.Tests` | Dataset generator tests (determinism, Persona mix, slow-burn spacing) |

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Vigil.Infrastructure.Alerts;
+using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
 
 namespace Vigil.Infrastructure;
@@ -10,6 +11,7 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
 {
     public DbSet<StoredEvent> Events => Set<StoredEvent>();
     public DbSet<StoredAlert> Alerts => Set<StoredAlert>();
+    public DbSet<StoredCase> Cases => Set<StoredCase>();
 
     /// <summary>
     /// Serialises detection for one Account across concurrent requests, so two ingests cannot both
@@ -68,5 +70,13 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
 
         // Native uuid[] rather than a join table: evidence is always read whole with its hit, never queried alone.
         hits.Property(h => h.EvidenceEventIds).HasColumnType("uuid[]");
+
+        var cases = modelBuilder.Entity<StoredCase>();
+        cases.ToTable("cases");
+        cases.HasKey(c => c.CaseId);
+        cases.Property(c => c.Status).HasConversion<string>().HasMaxLength(32);
+
+        // One-to-one with a unique AlertId, so the database itself refuses a second Case for an Alert.
+        alerts.HasOne(a => a.Case).WithOne(c => c.Alert).HasForeignKey<StoredCase>(c => c.AlertId);
     }
 }
