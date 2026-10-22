@@ -2,7 +2,7 @@ using Vigil.Domain.Events;
 
 namespace Vigil.Simulator.Scenarios;
 
-/// <summary>A fixed, scripted account journey with a known label, replayed on the simulated clock.</summary>
+/// <summary>A fixed, hand-scripted Account journey, posted to the API to demonstrate detection end to end.</summary>
 public abstract class Scenario
 {
     /// <summary>All scripts are anchored here so runs are reproducible (Mon 2026-09-21 09:00 UTC).</summary>

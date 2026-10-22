@@ -4,7 +4,14 @@ using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Vigil.Simulator;
 using Vigil.Simulator.Scenarios;
+
+if (args.FirstOrDefault() == GenerateCommand.Name)
+{
+    Console.WriteLine($"Wrote {GenerateCommand.Run(args)}");
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.AddServiceDefaults();

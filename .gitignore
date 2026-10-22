@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Generated Datasets are reproducible from their seed, so they are not committed.
+datasets/*.jsonl

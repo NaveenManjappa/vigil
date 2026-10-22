@@ -1,0 +1,69 @@
+using Vigil.Domain.Datasets;
+
+namespace Vigil.Simulator.Personas;
+
+/// <summary>
+/// Generates a labelled Dataset from the Section 10.1 Personas. Every random choice comes from one
+/// seeded generator, so the same seed and holder count always give the same Dataset.
+/// </summary>
+public static class DatasetGenerator
+{
+    /// <summary>Start of the simulated clock; the Dataset spans the 90 days after it.</summary>
+    public static readonly DateTimeOffset ClockStart = new(2026, 6, 23, 0, 0, 0, TimeSpan.Zero);
+
+    public static readonly TimeSpan ClockSpan = TimeSpan.FromDays(90);
+
+    private const double FraudShare = 0.03;
+    public const int RingSize = 5;
+
+    // One ring plus one each of the other three fraud Personas, so every Persona appears even in a small Dataset.
+    private const int MinimumFraud = RingSize + 3;
+    private const int MinimumGenuine = 4;
+
+    public static IReadOnlyList<LabelledAccount> Generate(int seed, int holders)
+    {
+        var fraud = Math.Max(MinimumFraud, (int)Math.Round(holders * FraudShare));
+        ArgumentOutOfRangeException.ThrowIfLessThan(holders, fraud + MinimumGenuine);
+
+        var rng = new Random(seed);
+        var name = $"dataset-{seed}-{holders}";
+
+        var slots = FraudSlots(fraud).Concat(GenuineSlots(holders - fraud, rng)).ToArray();
+        // Spread fraud through the Dataset rather than leaving it at the end.
+        rng.Shuffle(slots);
+
+        return slots
+            .Select((slot, i) => new AccountBuilder(name, i + 1, rng).Build(slot.Persona, slot.Ring))
+            .ToList();
+    }
+
+    /// <summary>About a quarter of fraud is rings; the rest is shared evenly between ATO, registration and slow-burn.</summary>
+    private static IEnumerable<(Persona Persona, int Ring)> FraudSlots(int fraud)
+    {
+        var rings = Math.Max(1, fraud / 4 / RingSize);
+        for (var ring = 1; ring <= rings; ring++)
+            for (var member = 0; member < RingSize; member++)
+                yield return (Persona.FraudRing, ring);
+
+        Persona[] solo = [Persona.AtoFraudster, Persona.RegistrationFraudster, Persona.SlowBurnFraudster];
+        for (var i = 0; i < fraud - rings * RingSize; i++)
+            yield return (solo[i % solo.Length], 0);
+    }
+
+    /// <summary>One of each genuine Persona, then mostly quiet holders.</summary>
+    private static IEnumerable<(Persona Persona, int Ring)> GenuineSlots(int genuine, Random rng)
+    {
+        Persona[] each = [Persona.QuietHolder, Persona.HouseMover, Persona.NewPhone, Persona.ActiveTrader];
+        foreach (var persona in each)
+            yield return (persona, 0);
+
+        for (var i = each.Length; i < genuine; i++)
+            yield return (rng.Next(10) switch
+            {
+                0 => Persona.HouseMover,
+                1 => Persona.NewPhone,
+                2 => Persona.ActiveTrader,
+                _ => Persona.QuietHolder,
+            }, 0);
+    }
+}

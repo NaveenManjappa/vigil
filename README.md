@@ -28,6 +28,13 @@ curl http://localhost:5107/accounts/ACC-MARGARET/timeline
 
 Running the simulator again is safe: events are idempotent on `EventId`, so the response reports them as already ingested.
 
+To generate a labelled Dataset from the Section 10.1 Personas (seeded, so the same arguments always give the same file; it is written locally and never posted to the API):
+
+```bash
+dotnet run --project src/Vigil.Simulator -- generate --seed 42 --holders 1000
+# Wrote datasets/seed-42-holders-1000.jsonl
+```
+
 Neo4j Browser: http://localhost:7474 (user `neo4j`, password in the AppHost's user-secrets: `dotnet user-secrets list --project src/Vigil.AppHost`).
 
 ## Tests
@@ -48,8 +55,9 @@ API tests start a throwaway Postgres container via Testcontainers.
 | `src/Vigil.Detection` | Rules engine: timeline + rule set → Alerts (pure) |
 | `src/Vigil.Infrastructure` | EF Core event and alert stores, migrations |
 | `src/Vigil.Api` | Ingestion, timeline, alert and rules endpoints |
-| `src/Vigil.Simulator` | Scripted scenarios |
+| `src/Vigil.Simulator` | Scripted Scenarios and the seeded Persona Dataset generator |
 | `tests/Vigil.Detection.Tests` | Detection tests against the shipped rules file |
+| `tests/Vigil.Simulator.Tests` | Dataset generator tests (determinism, Persona mix, slow-burn spacing) |
 | `tests/Vigil.Api.Tests` | API tests against real Postgres |
 | `config/rules.v1.json` | Versioned rules, windows, points and band thresholds |
 | `docs/adr` | Architecture decisions |

@@ -21,8 +21,24 @@ The portal component that emits a family of Portal Events, such as authenticatio
 _Avoid_: feed, upstream
 
 **Scenario**:
-A scripted Account journey with a known label (fraud or genuine), replayed to exercise detection.
-_Avoid_: test case, fixture, persona (a persona is a template that generates many scenarios)
+One named, hand-scripted Account journey with fixed timestamps, such as Margaret's takeover or Mr Patel's house move, posted to the API to demonstrate detection end to end.
+_Avoid_: test case, fixture, persona (a Persona is a template that generates many randomised Accounts; a Scenario is one fixed script)
+
+**Persona**:
+A template of Holder behaviour from PROJECT.md Section 10.1, such as quiet holder or ATO fraudster, from which the simulator generates many Accounts with randomised timings and identifiers.
+_Avoid_: profile, archetype, scenario
+
+**Baseline**:
+A generated Account's history of ordinary logins from the Holder's usual device and country, before its Persona's journey begins, so first-sighting rules have something to compare against.
+_Avoid_: warm-up, history (alone), normal profile
+
+**Label**:
+The ground truth for one generated Account: its Persona, plus its fraud kind (ATO, registration, ring or evasion) or genuine. Only evaluation reads it; it never goes to the API.
+_Avoid_: tag, class, verdict
+
+**Dataset**:
+A seeded, reproducible set of generated Accounts, each with its Portal Events and Label, stored as JSON lines. The same seed and holder count always give a byte-identical Dataset.
+_Avoid_: corpus, test data, fixture
 
 **Rule**:
 A named pattern of Portal Events on one Account that suggests fraud, worth a fixed number of points when it matches. A sequence Rule is two steps, A then B, inside a Window; each step may list alternative event types.
