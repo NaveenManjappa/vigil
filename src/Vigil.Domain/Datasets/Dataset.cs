@@ -51,4 +51,15 @@ public static class Dataset
             stream.WriteByte((byte)'\n');
         }
     }
+
+    public static IEnumerable<LabelledAccount> Read(Stream stream)
+    {
+        using var reader = new StreamReader(stream);
+        while (reader.ReadLine() is { } line)
+        {
+            if (line.Length == 0) continue;
+            yield return JsonSerializer.Deserialize<LabelledAccount>(line, JsonOptions)
+                ?? throw new InvalidDataException("A Dataset line is null.");
+        }
+    }
 }

@@ -72,6 +72,10 @@ _Avoid_: severity, level, priority
 Detection's verdict on one Risk Episode of an Account: its Rule Hits, their Score, its Risk Band and the Rules Version that opened it. Once stored it only grows: hits are appended, never rewritten.
 _Avoid_: flag, incident, case (a Case is the work item an analyst picks up)
 
+**Flagged**:
+Said of an Account in evaluation when any of its Alerts reached High or above at any point. Detection rate and false-positive rate count flagged Accounts.
+_Avoid_: detected, caught, alerted (an Account can have an Alert without being flagged)
+
 **Case**:
 The work item an analyst picks up for one Alert, opened with status Open the first time that Alert reaches High. An Alert has at most one Case: reaching Critical later raises the Case's priority but opens no second one. The queue orders Cases by Risk Band, then Score, then time opened.
 _Avoid_: ticket, investigation, alert (the Alert is detection's verdict; the Case is the work done on it)

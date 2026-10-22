@@ -4,6 +4,7 @@
     <Project Path="src/Vigil.AppHost/Vigil.AppHost.csproj" />
     <Project Path="src/Vigil.Detection/Vigil.Detection.csproj" />
     <Project Path="src/Vigil.Domain/Vigil.Domain.csproj" />
+    <Project Path="src/Vigil.Evaluation/Vigil.Evaluation.csproj" />
     <Project Path="src/Vigil.Infrastructure/Vigil.Infrastructure.csproj" />
     <Project Path="src/Vigil.ServiceDefaults/Vigil.ServiceDefaults.csproj" />
     <Project Path="src/Vigil.Simulator/Vigil.Simulator.csproj" />
@@ -11,6 +12,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/Vigil.Api.Tests/Vigil.Api.Tests.csproj" />
     <Project Path="tests/Vigil.Detection.Tests/Vigil.Detection.Tests.csproj" />
+    <Project Path="tests/Vigil.Evaluation.Tests/Vigil.Evaluation.Tests.csproj" />
     <Project Path="tests/Vigil.Simulator.Tests/Vigil.Simulator.Tests.csproj" />
   </Folder>
 </Solution>

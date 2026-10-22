@@ -22,6 +22,17 @@ public sealed class DatasetGeneratorTests
     }
 
     [Fact]
+    public void A_Dataset_read_back_from_its_file_writes_the_same_bytes()
+    {
+        var written = Bytes(seed: 42, holders: 1000);
+
+        using var reread = new MemoryStream();
+        Dataset.Write(Dataset.Read(new MemoryStream(written)), reread);
+
+        Assert.Equal(written, reread.ToArray());
+    }
+
+    [Fact]
     public void A_different_seed_gives_a_different_Dataset()
     {
         Assert.NotEqual(Bytes(seed: 42, holders: 1000), Bytes(seed: 43, holders: 1000));
