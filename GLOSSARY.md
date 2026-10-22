@@ -53,15 +53,19 @@ One Rule matching on an Account, recorded with its evidence EventIds, the time o
 _Avoid_: match, finding, reason code
 
 **Score**:
-The sum of the points of the distinct Rules hit in an Alert. A Rule that hits more than once still counts once.
+The sum of the points of the distinct Rules hit in an Alert. A Rule that hits more than once in a Risk Episode still counts once. It never decreases, so a band can only rise.
 _Avoid_: risk score (in code), rating
+
+**Risk Episode**:
+A run of Rule Hits on one Account where each hit's trigger time is at most the risk period (`riskPeriodDays`, 7) after the previous hit's, measured in event time and never by wall clock. A longer quiet gap ends the episode, and the next hit opens a new one. Each Risk Episode is one Alert.
+_Avoid_: incident, session, risk period (the risk period is the gap that ends an episode, not the episode itself)
 
 **Risk Band**:
 The label a Score falls into: Low, Medium, High or Critical, by thresholds set in the rules file.
 _Avoid_: severity, level, priority
 
 **Alert**:
-Detection's verdict on an Account: its Rule Hits, their Score, its Risk Band and the Rules Version that produced them.
+Detection's verdict on one Risk Episode of an Account: its Rule Hits, their Score, its Risk Band and the Rules Version that opened it. Once stored it only grows: hits are appended, never rewritten.
 _Avoid_: flag, incident, case (a Case is the work item an analyst picks up)
 
 **Rules Version**:

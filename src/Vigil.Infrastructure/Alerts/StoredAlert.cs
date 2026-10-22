@@ -13,6 +13,8 @@ public sealed class StoredAlert
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset UpdatedAt { get; set; }
     public List<StoredRuleHit> Hits { get; init; } = [];
+
+    public Alert ToDomain() => new(AccountId, Score, Band, RulesVersion, Hits.Select(h => h.ToDomain()).ToList());
 }
 
 /// <summary>A stored <see cref="RuleHit"/>. Written once and never updated, so past evidence stays exactly as it was.</summary>

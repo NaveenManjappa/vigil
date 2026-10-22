@@ -129,6 +129,37 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task A_late_event_leaves_the_stored_hits_unchanged()
+    {
+        const string account = "ACC-LATE";
+        var reset = Event(account, "PasswordReset", Monday);
+        var mfa = Event(account, "MfaEnrolled", Monday.AddMinutes(20));
+        await PostAsync(reset.Body, mfa.Body);
+
+        // An earlier MFA enrolment the source delayed: it would be a better R1 hit, but R1 is already stored.
+        await PostAsync(Event(account, "MfaEnrolled", Monday.AddMinutes(5)).Body);
+
+        var summary = Assert.Single(await AlertsAsync(), a => a.AccountId == account);
+        var alert = (await _client.GetFromJsonAsync<AlertDetail>($"/alerts/{summary.Id}", Json, Ct))!;
+        AssertHit(Assert.Single(alert.Hits), "R1", 30, [reset.Id, mfa.Id], "Password reset then MFA enrolment, 20 min apart; window 1h");
+        Assert.Equal(30, alert.Score);
+    }
+
+    [Fact]
+    public async Task A_hit_after_a_quiet_risk_period_opens_a_second_alert_and_leaves_the_first_alone()
+    {
+        const string account = "ACC-EPISODES";
+        await PostAsync(Event(account, "PasswordReset", Monday).Body, Event(account, "MfaEnrolled", Monday.AddMinutes(4)).Body);
+        await PostAsync(Event(account, "PasswordReset", Monday.AddDays(10)).Body, Event(account, "EmailChanged", Monday.AddDays(10).AddMinutes(9)).Body);
+
+        var alerts = (await AlertsAsync()).Where(a => a.AccountId == account).OrderBy(a => a.Score).ToList();
+
+        Assert.Equal([20, 30], alerts.Select(a => a.Score));
+        var first = (await _client.GetFromJsonAsync<AlertDetail>($"/alerts/{alerts[1].Id}", Json, Ct))!;
+        Assert.Equal("R1", Assert.Single(first.Hits).RuleId);
+    }
+
+    [Fact]
     public async Task Concurrent_ingests_for_one_account_produce_one_alert()
     {
         const string account = "ACC-CONCURRENT";

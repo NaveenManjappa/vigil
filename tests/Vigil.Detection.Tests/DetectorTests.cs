@@ -209,6 +209,189 @@ public sealed class DetectorTests
         Assert.Empty(Detector.Detect([reset, mfa, resent], Rules));
     }
 
+    [Fact]
+    public void A_hit_more_than_the_risk_period_after_the_previous_one_opens_a_new_alert()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
+        var bank = Event(EventType.BankDetailsChanged, Monday.AddMinutes(4).AddDays(7).AddSeconds(1));
+        var sale = Event(EventType.SaleRequested, bank.OccurredAt.AddHours(1));
+
+        // R3 (email → bank) cannot hit: its 72h window has passed, so the next hit is R4 at the sale.
+        var alerts = Detector.Detect([reset, mfa, email, bank, sale], Rules);
+
+        Assert.Collection(alerts,
+            first => Assert.Equal(["R1", "R2"], first.Hits.Select(h => h.RuleId)),
+            second =>
+            {
+                Assert.Equal(["R4"], second.Hits.Select(h => h.RuleId));
+                Assert.Equal(40, second.Score);
+                Assert.Equal(RiskBand.Medium, second.Band);
+            });
+    }
+
+    [Fact]
+    public void A_hit_exactly_the_risk_period_after_the_previous_one_joins_its_alert()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(6));
+        var sale = Event(EventType.SaleRequested, Monday.AddMinutes(4).AddDays(7));
+
+        var alert = Assert.Single(Detector.Detect([reset, mfa, bank, sale], Rules));
+
+        Assert.Equal(["R1", "R4"], alert.Hits.Select(h => h.RuleId));
+        Assert.Equal(70, alert.Score);
+    }
+
+    [Fact]
+    public void An_episode_longer_than_the_risk_period_keeps_its_score()
+    {
+        // Each hit is within 7 days of the one before, so the episode runs 12 days and nothing decays.
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var email = Event(EventType.EmailChanged, Monday.AddDays(5));
+        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(6));
+        var sale = Event(EventType.SaleRequested, Monday.AddDays(12));
+
+        var alert = Assert.Single(Detector.Detect([reset, mfa, email, bank, sale], Rules));
+
+        Assert.Equal(["R1", "R3", "R4"], alert.Hits.Select(h => h.RuleId));
+        Assert.Equal(100, alert.Score);
+        Assert.Equal(RiskBand.Critical, alert.Band);
+    }
+
+    [Fact]
+    public void A_rule_counts_once_per_episode_and_again_in_a_new_one()
+    {
+        var firstReset = Event(EventType.PasswordReset, Monday);
+        var firstMfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var secondReset = Event(EventType.PasswordReset, Monday.AddDays(10));
+        var secondMfa = Event(EventType.MfaEnrolled, Monday.AddDays(10).AddMinutes(2));
+
+        var alerts = Detector.Detect([firstReset, firstMfa, secondReset, secondMfa], Rules);
+
+        Assert.Collection(alerts,
+            a => Assert.Equal([firstReset.EventId, firstMfa.EventId], Assert.Single(a.Hits).EvidenceEventIds),
+            a => Assert.Equal([secondReset.EventId, secondMfa.EventId], Assert.Single(a.Hits).EvidenceEventIds));
+    }
+
+    [Fact]
+    public void Replaying_a_timeline_in_any_arrival_order_gives_identical_alerts()
+    {
+        PortalEvent[] timeline =
+        [
+            Event(EventType.PasswordReset, Monday),
+            Event(EventType.MfaEnrolled, Monday.AddMinutes(4)),
+            Event(EventType.EmailChanged, Monday.AddMinutes(10)),
+            Event(EventType.BankDetailsChanged, Monday.AddDays(1)),
+            Event(EventType.PasswordReset, Monday.AddDays(20)),
+            Event(EventType.MfaEnrolled, Monday.AddDays(20).AddMinutes(30)),
+            Event(EventType.PhoneChanged, Monday.AddDays(20).AddHours(2)),
+        ];
+        var expected = Detector.Detect(timeline, Rules);
+
+        var random = new Random(13);
+        for (var run = 0; run < 20; run++)
+        {
+            var shuffled = timeline.ToArray();
+            random.Shuffle(shuffled);
+
+            var actual = Detector.Detect(shuffled, Rules);
+
+            Assert.Equal(expected.Count, actual.Count);
+            foreach (var (e, a) in expected.Zip(actual))
+            {
+                Assert.Equal(e.Score, a.Score);
+                Assert.Equal(e.Hits, a.Hits, RuleHitComparer.Instance);
+            }
+        }
+
+        Assert.Equal(2, expected.Count);
+    }
+
+    [Fact]
+    public void A_late_event_that_would_be_an_earlier_hit_for_an_already_hit_rule_changes_nothing()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(20));
+        var stored = Detector.Detect([reset, mfa], Rules);
+
+        // Enrolled five minutes after the reset, but delayed at the source.
+        var lateMfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(5));
+        var alert = Assert.Single(Detector.Detect([reset, mfa, lateMfa], Rules, stored));
+
+        var hit = Assert.Single(alert.Hits);
+        Assert.Equal([reset.EventId, mfa.EventId], hit.EvidenceEventIds);
+        Assert.Equal(30, alert.Score);
+    }
+
+    [Fact]
+    public void Detecting_again_over_the_same_timeline_leaves_stored_alerts_unchanged()
+    {
+        PortalEvent[] timeline =
+        [
+            Event(EventType.PasswordReset, Monday),
+            Event(EventType.MfaEnrolled, Monday.AddMinutes(4)),
+            Event(EventType.BankDetailsChanged, Monday.AddDays(6)),
+            Event(EventType.SaleRequested, Monday.AddDays(20)),
+            Event(EventType.PasswordReset, Monday.AddDays(20)),
+            Event(EventType.MfaEnrolled, Monday.AddDays(20).AddMinutes(1)),
+        ];
+        var stored = Detector.Detect(timeline, Rules);
+
+        var again = Detector.Detect(timeline, Rules, stored);
+
+        Assert.Equal(stored.Count, again.Count);
+        foreach (var (s, a) in stored.Zip(again)) Assert.Equal(s.Hits, a.Hits, RuleHitComparer.Instance);
+    }
+
+    [Fact]
+    public void A_late_hit_for_a_new_rule_is_appended_after_the_stored_hits()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(20));
+        var stored = Detector.Detect([reset, mfa], Rules);
+
+        var lateEmail = Event(EventType.EmailChanged, Monday.AddMinutes(10));
+        var alert = Assert.Single(Detector.Detect([reset, mfa, lateEmail], Rules, stored));
+
+        Assert.Equal(["R1", "R2"], alert.Hits.Select(h => h.RuleId));
+        Assert.Equal(50, alert.Score);
+    }
+
+    [Fact]
+    public void A_late_hit_just_before_a_stored_episode_joins_it_rather_than_opening_another()
+    {
+        // Over 24h after the reset below, so R2 (reset → contact change) stays out of it.
+        var email = Event(EventType.EmailChanged, Monday.AddDays(1).AddHours(1));
+        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(1).AddHours(2));
+        var stored = Detector.Detect([email, bank], Rules);
+
+        // The reset and MFA enrolment happened the day before but reached Vigil after the bank change.
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var alert = Assert.Single(Detector.Detect([email, bank, reset, mfa], Rules, stored));
+
+        Assert.Equal(["R3", "R1"], alert.Hits.Select(h => h.RuleId));
+        Assert.Equal(60, alert.Score);
+        Assert.Equal(RiskBand.High, alert.Band);
+    }
+
+    [Fact]
+    public void A_stored_alert_keeps_the_rules_version_that_opened_it()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var stored = Detector.Detect([reset, mfa], Rules with { Version = "v0" });
+
+        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
+        var alert = Assert.Single(Detector.Detect([reset, mfa, email], Rules, stored));
+
+        Assert.Equal("v0", alert.RulesVersion);
+    }
+
     // RuleHit holds its evidence in a list, which records compare by reference.
     private sealed class RuleHitComparer : IEqualityComparer<RuleHit>
     {

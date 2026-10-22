@@ -6,30 +6,40 @@ namespace Vigil.Infrastructure.Alerts;
 public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
 {
     /// <summary>
-    /// Merges freshly detected Alerts into what is stored: hits for rules not yet stored are appended,
-    /// stored hits are never rewritten. Detection re-runs over the whole timeline on every ingest, so
-    /// without this merge a re-sent or late event could silently change past evidence.
+    /// Hands the Account's stored Alerts to <paramref name="detect"/> and persists what it adds. Detection
+    /// only ever extends stored Alerts (ADR-0013), so this appends hits and Alerts and never rewrites a stored hit.
     /// </summary>
-    public async Task SaveAsync(string accountId, IReadOnlyList<Alert> detected, CancellationToken ct = default)
+    public async Task SaveAsync(
+        string accountId, Func<IReadOnlyList<Alert>, IReadOnlyList<Alert>> detect, CancellationToken ct = default)
     {
-        // Detection yields at most one Alert per Account for now.
-        if (detected.SingleOrDefault() is not { } alert) return;
+        var stored = await db.Alerts
+            .Include(a => a.Hits.OrderBy(h => h.TriggeredAt).ThenBy(h => h.Id))
+            .Where(a => a.AccountId == accountId)
+            .OrderBy(a => a.CreatedAt).ThenBy(a => a.AlertId)
+            .ToListAsync(ct);
+        var detected = detect(stored.Select(a => a.ToDomain()).ToList());
 
         var now = clock.GetUtcNow();
-        var stored = await db.Alerts.Include(a => a.Hits).SingleOrDefaultAsync(a => a.AccountId == accountId, ct);
-        if (stored is null)
+        for (var i = 0; i < detected.Count; i++)
         {
-            stored = new StoredAlert { AccountId = accountId, RulesVersion = alert.RulesVersion, CreatedAt = now };
-            db.Alerts.Add(stored);
+            var alert = detected[i];
+            var target = i < stored.Count ? stored[i] : null;
+            if (target is null)
+            {
+                target = new StoredAlert { AccountId = accountId, RulesVersion = alert.RulesVersion, CreatedAt = now };
+                db.Alerts.Add(target);
+            }
+
+            // Detection keeps stored hits first and in order, so everything past them is new.
+            var added = alert.Hits.Skip(target.Hits.Count).ToList();
+            if (added.Count == 0) continue;
+
+            target.Hits.AddRange(added.Select(StoredRuleHit.From));
+            target.Score = alert.Score;
+            target.Band = alert.Band;
+            target.UpdatedAt = now;
         }
 
-        foreach (var hit in alert.Hits.Where(h => stored.Hits.All(s => s.RuleId != h.RuleId)))
-            stored.Hits.Add(StoredRuleHit.From(hit));
-
-        stored.Score = alert.Score;
-        stored.Band = alert.Band;
-        stored.RulesVersion = alert.RulesVersion;
-        stored.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
     }
 

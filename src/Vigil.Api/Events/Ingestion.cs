@@ -31,7 +31,7 @@ public sealed class Ingestion(VigilDbContext db, EventStore events, AlertStore a
             foreach (var accountId in accounts)
             {
                 var timeline = await events.GetTimelineAsync(accountId, ct);
-                await alerts.SaveAsync(accountId, Detector.Detect(timeline, ruleSet), ct);
+                await alerts.SaveAsync(accountId, stored => Detector.Detect(timeline, ruleSet, stored), ct);
             }
 
             await tx.CommitAsync(ct);
