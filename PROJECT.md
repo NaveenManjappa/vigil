@@ -535,6 +535,8 @@ Each stage ends with a **"Done when"** checklist and a short **"Explain it"** li
 - `CLAUDE.md` with conventions; git repo; GitHub Actions CI (build + tests).
 - Simulator v0: Margaret (ATO) and Mr Patel (genuine) as fixed scripts.
 
+> **Stage 0 decisions (grill session, 2026-10-22):** only the `events` table is created now; alerts, cases, decisions and audit tables arrive with the stages that define their shape. ADRs keep the numbering in Section 4.3 and are written when their stage makes the decision real (Stage 0: 0003, 0010, 0011). See GLOSSARY.md and docs/adr/.
+
 **Done when**
 - [ ] `dotnet run` on AppHost starts everything; Aspire dashboard shows API, Postgres, Neo4j healthy.
 - [ ] Simulator posts Margaret's and Mr Patel's events; they appear in Postgres.
@@ -697,14 +699,13 @@ Status: Accepted | Date: YYYY-MM-DD
 
 ## 18. Working agreement for Claude Code
 
-1. **Build one stage at a time.** Do not start a stage until the previous stage's "Done when" list is ticked and the developer confirms.
-2. **`[HUMAN]` modules** (`Vigil.Detection`, `Vigil.Graph`, `Vigil.Agents`): after implementing, walk the developer through the code (purpose of each class, the main flow, one tricky line) before moving on. Keep these modules small and readable — clarity over cleverness.
-3. **Verify MAF APIs against current official docs** before writing agent/workflow code; the framework changes quickly. Note any API differences from this document in the relevant ADR.
-4. **Tests first for detection logic**; no real LLM calls in tests.
-5. **Every architectural choice gets an ADR** (short is fine).
-6. **Budget guard:** never loop LLM calls over the full dataset; agent evals use a sample size from config. Log tokens per call.
-7. **Commit at the end of each stage** with a clear message; keep CI green.
-8. Use plain, well-named code and comments explaining *why*, not *what*.
+
+1. **`[HUMAN]` modules** (`Vigil.Detection`, `Vigil.Graph`, `Vigil.Agents`): after implementing, walk the developer through the code (purpose of each class, the main flow, one tricky line) before moving on. Keep these modules small and readable — clarity over cleverness.
+2. **Verify MAF APIs against current official docs** before writing agent/workflow code; the framework changes quickly. Note any API differences from this document in the relevant ADR.
+3. **Tests first for detection logic**; no real LLM calls in tests.
+4. **Every architectural choice gets an ADR** (short is fine).
+5. **Budget guard:** never loop LLM calls over the full dataset; agent evals use a sample size from config. Log tokens per call.
+6. Use plain, well-named code and comments explaining *why*, not *what*.
 
 ---
 
