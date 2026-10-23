@@ -2,8 +2,9 @@ using System.Text.Json;
 
 namespace Vigil.Agents;
 
-/// <summary>One agent call's tokens, kept for the Audit Entry.</summary>
-public sealed record AgentUsage(string AgentId, string PromptVersion, long InputTokens, long OutputTokens);
+/// <summary>One agent call's tokens and model, kept for the Audit Entry.</summary>
+/// <param name="Model">Last, and optional, so checkpoints written before it was added still read.</param>
+public sealed record AgentUsage(string AgentId, string PromptVersion, long InputTokens, long OutputTokens, string? Model = null);
 
 /// <summary>
 /// What an Investigation hands to Await Approval. Every path produces one, so a Case reaches the analyst even when
@@ -58,7 +59,7 @@ public sealed class InvestigationLoop(Investigator investigator, Reviewer review
             {
                 return Failed(usage, e);
             }
-            usage.Add(new(Investigator.AgentId, Investigator.PromptVersion, investigated.InputTokens, investigated.OutputTokens));
+            usage.Add(new(Investigator.AgentId, Investigator.PromptVersion, investigated.InputTokens, investigated.OutputTokens, investigated.Model));
             finding = investigated.Finding;
 
             reasons = FindingValidation.Check(finding, enrichment.Evidence.Refs);
@@ -74,7 +75,7 @@ public sealed class InvestigationLoop(Investigator investigator, Reviewer review
             {
                 return Failed(usage, e);
             }
-            usage.Add(new(Reviewer.AgentId, Reviewer.PromptVersion, reviewed.InputTokens, reviewed.OutputTokens));
+            usage.Add(new(Reviewer.AgentId, Reviewer.PromptVersion, reviewed.InputTokens, reviewed.OutputTokens, reviewed.Model));
             if (reviewed.Review.Approved)
                 return new(finding, ReviewFlag: false, [], usage, Failure: null);
 

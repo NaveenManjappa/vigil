@@ -7,7 +7,8 @@ using Microsoft.Extensions.AI;
 namespace Vigil.Agents;
 
 /// <param name="InputTokens">Summed over every round trip of the tool loop, which is what is billed.</param>
-public sealed record InvestigatorResult(Finding Finding, long InputTokens, long OutputTokens);
+/// <param name="Model">The model that answered, for the Audit Entry; null if the provider does not say.</param>
+public sealed record InvestigatorResult(Finding Finding, long InputTokens, long OutputTokens, string? Model = null);
 
 /// <summary>
 /// The Investigator agent: given a Case's Enrichment it calls its tools as it sees fit and writes a Finding. One call
@@ -29,10 +30,12 @@ public sealed class Investigator
 
     private readonly ChatClientAgent _agent;
     private readonly IInvestigationSource _source;
+    private readonly IChatClient _chat;
 
     public Investigator(IChatClient chat, IInvestigationSource source)
     {
         _source = source;
+        _chat = chat;
         _agent = chat.AsAIAgent(new ChatClientAgentOptions
         {
             Id = AgentId,
@@ -56,7 +59,19 @@ public sealed class Investigator
             Message(enrichment, reviewerReasons), serializerOptions: Json, options: options, cancellationToken: ct);
 
         // Result parses lazily, so it is read here, where a malformed reply should fail.
-        return new InvestigatorResult(response.Result, response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0);
+        return new InvestigatorResult(
+            response.Result, response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0, ModelOf(response, _chat));
+    }
+
+    /// <summary>
+    /// The model named on the reply, which is the one that actually answered, else the provider's default. The chat
+    /// client's reply sits under the structured-output wrapper, one raw representation down per layer.
+    /// </summary>
+    internal static string? ModelOf(AgentResponse response, IChatClient chat)
+    {
+        object? raw = response;
+        while (raw is AgentResponse layer) raw = layer.RawRepresentation;
+        return (raw as ChatResponse)?.ModelId ?? chat.GetService<ChatClientMetadata>()?.DefaultModelId;
     }
 
     private static string Message(Enrichment enrichment, IReadOnlyList<string> reviewerReasons)

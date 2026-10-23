@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Vigil.Domain.Cases;
 using Vigil.Domain.Detection;
 using Vigil.Infrastructure.Alerts;
@@ -27,11 +28,34 @@ public sealed class CaseStore(VigilDbContext db)
     public async Task<StoredCase?> FindAsync(Guid caseId, CancellationToken ct = default) =>
         await db.Cases.SingleOrDefaultAsync(c => c.CaseId == caseId, ct);
 
-    /// <summary>Tracked, with its Alert and Rule Hits: what an Investigation starts from and the Case detail shows.</summary>
+    /// <summary>
+    /// Tracked, with its Alert and Rule Hits, decision and Intervention: what an Investigation starts from, Act
+    /// changes and the Case detail shows.
+    /// </summary>
     public async Task<StoredCase?> FindWithAlertAsync(Guid caseId, CancellationToken ct = default) =>
-        await db.Cases.Include(c => c.Alert).ThenInclude(a => a.Hits).SingleOrDefaultAsync(c => c.CaseId == caseId, ct);
+        await db.Cases
+            .Include(c => c.Alert).ThenInclude(a => a.Hits)
+            .Include(c => c.Decision)
+            .Include(c => c.Intervention)
+            .SingleOrDefaultAsync(c => c.CaseId == caseId, ct);
 
     public Task SaveAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
+
+    /// <summary>
+    /// Saves a Case's Analyst Decision with whatever else is staged. Two decisions can both find the Case awaiting
+    /// approval, but its key lets only one be inserted; the other gets <see cref="DecisionAlreadyRecordedException"/>.
+    /// </summary>
+    public async Task SaveDecisionAsync(Guid caseId, CancellationToken ct = default)
+    {
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException e) when (e.InnerException is PostgresException { SqlState: PostgresErrorCodes.UniqueViolation })
+        {
+            throw new DecisionAlreadyRecordedException(caseId, e);
+        }
+    }
 
     public async Task<int> InvestigationsStartedSinceAsync(DateTimeOffset since, CancellationToken ct = default) =>
         await db.Cases.CountAsync(c => c.InvestigationStartedAt >= since, ct);

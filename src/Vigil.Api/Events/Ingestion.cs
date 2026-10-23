@@ -48,11 +48,17 @@ public sealed class Ingestion(
     }
 
     /// <summary>Idempotent: an Account already Confirmed Fraud keeps its first decision, which is returned.</summary>
-    public async Task<ConfirmedFraud> RecordConfirmedFraudAsync(ConfirmedFraud fraud, CancellationToken ct) =>
+    /// <param name="first">
+    /// Runs inside the same transaction, before anything is recorded, so its writes commit or roll back with the
+    /// Confirmed Fraud; Act records the Analyst Decision this way. It may run more than once, as a retried attempt
+    /// starts again with a cleared change tracker.
+    /// </param>
+    public async Task<ConfirmedFraud> RecordConfirmedFraudAsync(ConfirmedFraud fraud, CancellationToken ct, Func<Task>? first = null) =>
         await InTransactionAsync(async opened =>
         {
             // The Account's lock also serialises the Case MERGE, which no uniqueness constraint protects.
             await db.LockAccountAsync(fraud.AccountId, ct);
+            if (first is not null) await first();
             var recorded = await frauds.RecordAsync(fraud, ct);
 
             // Projected even when already recorded, so a retry after a failed commit still reaches the graph.

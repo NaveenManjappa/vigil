@@ -23,7 +23,7 @@ public static class InvestigationRegistration
         services.AddScoped<Reviewer>();
         services.AddScoped<InvestigationLoop>();
         services.AddScoped<JsonCheckpointStore, PostgresCheckpointStore>();
-        services.AddScoped<IActStep, CloseCaseActStep>();
+        services.AddScoped<IActStep, ActStep>();
         services.AddScoped<InvestigationWorkflow>();
         services.AddScoped<IInvestigationRunner, WorkflowInvestigationRunner>();
         return services;

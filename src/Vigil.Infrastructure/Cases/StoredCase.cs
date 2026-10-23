@@ -34,4 +34,10 @@ public sealed class StoredCase
     public Dictionary<string, List<Guid>>? EvidenceRefs { get; set; }
 
     public string? PromptVersion { get; set; }
+
+    /// <summary>Set once, by Act; null until the analyst decides.</summary>
+    public StoredAnalystDecision? Decision { get; set; }
+
+    /// <summary>Set by Act unless the decision's action was NoAction.</summary>
+    public StoredIntervention? Intervention { get; set; }
 }

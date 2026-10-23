@@ -8,7 +8,7 @@ namespace Vigil.Agents;
 /// <summary>The Reviewer's answer: approve, or reject with reasons the Investigator retries with.</summary>
 public sealed record Review(bool Approved, IReadOnlyList<string> Reasons);
 
-public sealed record ReviewerResult(Review Review, long InputTokens, long OutputTokens);
+public sealed record ReviewerResult(Review Review, long InputTokens, long OutputTokens, string? Model = null);
 
 /// <summary>
 /// The Reviewer agent: checks a Finding's claims against the evidence lines of the refs it cites. It has no tools, so
@@ -22,14 +22,18 @@ public sealed class Reviewer
     public const string PromptVersion = "reviewer.v1";
 
     private readonly ChatClientAgent _agent;
+    private readonly IChatClient _chat;
 
-    public Reviewer(IChatClient chat) =>
+    public Reviewer(IChatClient chat)
+    {
+        _chat = chat;
         _agent = chat.AsAIAgent(new ChatClientAgentOptions
         {
             Id = AgentId,
             Name = AgentName,
             ChatOptions = new ChatOptions { Instructions = Prompts.Load(PromptVersion), Temperature = 0 },
         });
+    }
 
     /// <summary>
     /// Reviews one Finding that has passed validation. An LLM failure or a reply that is not a Review throws
@@ -43,7 +47,7 @@ public sealed class Reviewer
         var review = response.Result;
         return new ReviewerResult(
             review with { Reasons = review.Reasons ?? [] },
-            response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0);
+            response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0, Investigator.ModelOf(response, _chat));
     }
 
     private static string Message(Finding finding, MaskedEvidence evidence)

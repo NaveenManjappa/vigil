@@ -1,9 +1,10 @@
 namespace Vigil.Domain.Fraud;
 
-/// <summary>Who decided an Account was fraud. Stage 2 only seeds known fraud; Stage 3 adds analyst decisions.</summary>
+/// <summary>Who decided an Account was fraud: seeded as known fraud, or an Analyst Decision with outcome ConfirmedFraud.</summary>
 public enum ConfirmedFraudSource
 {
     Seed,
+    Analyst,
 }
 
 /// <summary>

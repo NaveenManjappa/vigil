@@ -1,5 +1,6 @@
 using Vigil.Api.Events;
 using Vigil.Domain.Fraud;
+using Vigil.Infrastructure.Fraud;
 
 namespace Vigil.Api.Fraud;
 
@@ -9,7 +10,12 @@ public static class ConfirmedFraudEndpoints
 {
     public static IEndpointRouteBuilder MapConfirmedFraudEndpoints(this IEndpointRouteBuilder app)
     {
-        // Seeding only: Stage 3's analyst decisions will reach the same record through the Case workflow.
+        app.MapGet("/accounts/{accountId}/confirmed-fraud",
+                async Task<IResult> (string accountId, ConfirmedFraudStore frauds, CancellationToken ct) =>
+                    await frauds.FindAsync(accountId, ct) is { } fraud ? TypedResults.Ok(fraud) : TypedResults.NotFound())
+            .WithSummary("The Account's Confirmed Fraud, with when and by what source it was decided; 404 if it is not one.");
+
+        // Seeding only: analyst decisions reach the same record through the Case's Act step.
         app.MapPost("/accounts/{accountId}/confirmed-fraud",
                 async (string accountId, ConfirmedFraudRequest request, Ingestion ingestion, CancellationToken ct) =>
                     TypedResults.Ok(await ingestion.RecordConfirmedFraudAsync(
