@@ -81,23 +81,26 @@ Margaret holds 2,000 shares (~£18,000) and logs in a few times a year from a la
 | Time | Event | Rule fired | Score | Band |
 |---|---|---|---|---|
 | Mon 09:00 | `PasswordReset` from new device `D-77`, IP in Romania | R0 new device + new country (+10) | 10 | Low |
-| Mon 09:04 | `MfaEnrolled` (new phone) | R1 reset → MFA within 1h (+30) | 40 | Medium |
-| Mon 09:10 | `EmailChanged` | R2 contact change within 24h of reset (+20) | 60 | **High → case opened** |
-| Mon 09:10 | Graph enrichment: `D-77` used on 3 other accounts, one confirmed fraud | G2 device linked to known fraud (+25) | **85** | High |
+| Mon 09:00 | Graph: `D-77` already used on 3 other Accounts, one Confirmed Fraud | G2 device linked to known fraud (+25), G3 ring indicator (+20) | 55 | Medium |
+| Mon 09:04 | `MfaEnrolled` (new phone) | R1 reset → MFA within 1h (+30) | 85 | **High → case opened** |
+| Mon 09:10 | `EmailChanged` | R2 contact change within 24h of reset (+20) | **105** | **Critical** |
 | Mon 09:11 | MAF workflow: Investigator → Reviewer → **pause for analyst** | — | — | — |
 | Mon 09:30 | Analyst approves: block bank changes 7 days, contact holder by post | — | — | — |
 | Tue 14:00 | Fraudster attempts `BankDetailsChanged` → **blocked** | (R3 would have fired) | — | — |
 
 **Detected before the bank-detail change** — the explicit MVP goal.
 
+Until Stage 3 can block it, the simulator still posts Tuesday's `BankDetailsChanged`, so the live Alert goes on to add R3 (+30) and ends at 135.
+
 Explainable alert:
 
 ```
-Alert A-501  ACC-MARGARET  Score 85  HIGH   rules v1.3
+Alert A-501  ACC-MARGARET  Score 105  CRITICAL   rules v2
  ├─ R0 +10  E-1001 PasswordReset            (new device D-77, new country RO)
+ ├─ G2 +25  D-77 ─USED_BY→ ACC-PRIYA        (confirmed fraud, 2026-09-14)
+ ├─ G3 +20  D-77 shared by 4 Accounts       (ACC-DEREK, ACC-PRIYA, ACC-LENA; Ring threshold 3)
  ├─ R1 +30  E-1001 → E-1002                 (reset → MFA enrol, 4 min; window 1h)
- ├─ R2 +20  E-1001 → E-1003                 (reset → email change, 10 min; window 24h)
- └─ G2 +25  D-77 ─USED_BY→ ACC-PRIYA        (confirmed fraud, 2026-09-14)
+ └─ R2 +20  E-1001 → E-1003                 (reset → email change, 10 min; window 24h)
 ```
 
 Agent case summary (cites evidence IDs; PII masked):

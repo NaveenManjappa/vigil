@@ -53,4 +53,22 @@ public sealed class ScenarioReplayTests
 
         Assert.Contains("Never reached High; peak Low", text);
     }
+
+    [Fact]
+    public void The_rendered_replay_says_the_Graph_Rules_were_skipped()
+    {
+        var v2 = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.v2.json"));
+
+        var text = ScenarioReplay.Render(Margaret, v2, ScenarioReplay.Replay(Margaret, v2));
+
+        Assert.Contains("Graph Rules G1, G2, G3 skipped", text);
+    }
+
+    [Fact]
+    public void A_rule_set_without_Graph_Rules_mentions_none()
+    {
+        var text = ScenarioReplay.Render(Margaret, Rules, ScenarioReplay.Replay(Margaret, Rules));
+
+        Assert.DoesNotContain("Graph Rules", text);
+    }
 }

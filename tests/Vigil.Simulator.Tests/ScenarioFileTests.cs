@@ -11,10 +11,10 @@ public sealed class ScenarioFileTests
 
     // Steps are added to this so each error test changes only the part it is about.
     private static string Json(
-        string steps, string baseline = """{ "device": "D-1", "ip": "203.0.113.1", "country": "GB" }""", string extra = "") => $$"""
+        string steps, string baseline = """{ "device": "D-1", "ip": "203.0.113.1", "country": "GB" }""", string extra = "", string name = "test") => $$"""
         {
           {{extra}}
-          "name": "test",
+          "name": "{{name}}",
           "description": "",
           "accountId": "ACC-TEST",
           "baseline": {{baseline}},
@@ -58,9 +58,24 @@ public sealed class ScenarioFileTests
     }
 
     [Fact]
-    public void Every_file_in_the_folder_loads()
+    public void Every_file_in_the_folder_loads_in_first_event_order()
     {
-        Assert.Equal(["margaret-ato", "patel-house-move"], Scenario.LoadAll(Folder).Select(s => s.Name));
+        // The D-77 history starts before Margaret's first baseline login, so it is in the graph before her takeover.
+        // Margaret and Mr Patel start at the same moment, so the name settles their order.
+        Assert.Equal(
+            ["derek-reset", "priya-ato", "lena-reset", "margaret-ato", "patel-house-move"],
+            Scenario.LoadAll(Folder).Select(s => s.Name));
+    }
+
+    [Fact]
+    public void Scenarios_are_ordered_by_their_first_event_not_their_file_name()
+    {
+        const string step = """{ "after": "0m", "type": "PasswordReset" }""";
+        var folder = Directory.CreateTempSubdirectory().FullName;
+        File.WriteAllText(Path.Combine(folder, "a.json"), Json(step, extra: """ "start": "2026-09-21T09:00:00Z", """, name: "late"));
+        File.WriteAllText(Path.Combine(folder, "b.json"), Json(step, extra: """ "start": "2026-09-14T09:00:00Z", """, name: "early"));
+
+        Assert.Equal(["early", "late"], Scenario.LoadAll(folder).Select(s => s.Name));
     }
 
     [Fact]
@@ -102,6 +117,14 @@ public sealed class ScenarioFileTests
             Scenario.Parse(Json("""{ "after": "0m", "type": "AccountRegistered" }""", baseline: "null"), "test.json"));
 
         Assert.Contains("step 1", error.Message);
+    }
+
+    [Fact]
+    public void A_scenario_without_steps_is_rejected()
+    {
+        var error = Assert.Throws<InvalidDataException>(() => Scenario.Parse(Json(""), "test.json"));
+
+        Assert.Contains("no steps", error.Message);
     }
 
     [Fact]

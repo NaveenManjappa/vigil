@@ -24,8 +24,13 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
 
     private static Scenario Load(string name) => Scenario.Load(Path.Combine(AppContext.BaseDirectory, "scenarios", $"{name}.json"));
 
-    private async Task PostAsync(Scenario scenario) =>
-        (await _client.PostAsJsonAsync("/events", scenario.Events(), Json, Ct)).EnsureSuccessStatusCode();
+    // Every test posts the whole demo, in the simulator's order: posting is idempotent, so the shared database ends up
+    // the same whichever test runs first.
+    private async Task PostAllAsync()
+    {
+        foreach (var scenario in Scenario.LoadAll(Path.Combine(AppContext.BaseDirectory, "scenarios")))
+            await ScenarioPoster.PostAsync(_client, scenario, Ct);
+    }
 
     private async Task<List<AlertSummary>> AlertsForAsync(string accountId) =>
         (await _client.GetFromJsonAsync<List<AlertSummary>>("/alerts", Json, Ct))!.Where(a => a.AccountId == accountId).ToList();
@@ -34,16 +39,19 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
         (await _client.GetFromJsonAsync<List<CaseSummary>>("/cases", Json, Ct))!.Where(c => c.AccountId == accountId).ToList();
 
     [Fact]
-    public async Task Margaret_reaches_High_at_the_email_change_before_any_bank_change()
+    public async Task Margaret_is_Critical_at_the_email_change_with_D77_evidence_before_any_bank_change()
     {
-        var scenario = Load("margaret-ato");
-        var events = scenario.Events();
+        var events = Load("margaret-ato").Events();
         var reset = events.Single(e => e.Type == EventType.PasswordReset);
         var mfa = events.Single(e => e.Type == EventType.MfaEnrolled);
         var email = events.Single(e => e.Type == EventType.EmailChanged);
         var bank = events.Single(e => e.Type == EventType.BankDetailsChanged);
 
-        await PostAsync(scenario);
+        // Each earlier Account's link to D-77 was made by its own first D-77 event, the fraudster's password reset.
+        var derekReset = Load("derek-reset").Steps[0].Event;
+        var priyaReset = Load("priya-ato").Steps[0].Event;
+
+        await PostAllAsync();
 
         var summary = Assert.Single(await AlertsForAsync("ACC-MARGARET"));
         var alert = (await _client.GetFromJsonAsync<AlertDetail>($"/alerts/{summary.Id}", Json, Ct))!;
@@ -55,11 +63,25 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
         Assert.Equal([reset.EventId, mfa.EventId], r1.EvidenceEventIds);
         Assert.Equal([reset.EventId, email.EventId], r2.EvidenceEventIds);
 
-        // The hits triggered by the email change add up to 60, the High threshold (PROJECT.md Section 7.3),
-        // and the bank change comes the next day.
-        Assert.Equal(email.OccurredAt, r2.TriggeredAt);
-        Assert.Equal(60, alert.Hits.Where(h => h.TriggeredAt <= email.OccurredAt).Sum(h => h.Points));
+        // D-77 was already linked to Confirmed Fraud Account ACC-PRIYA and to ACC-DEREK and ACC-LENA, so Margaret's
+        // first D-77 event, her password reset, completes both graph hits.
+        var g2 = Assert.Single(alert.Hits, h => h.RuleId == "G2");
+        Assert.Equal([priyaReset.EventId, reset.EventId], g2.EvidenceEventIds);
+        Assert.Equal(reset.OccurredAt, g2.TriggeredAt);
+        Assert.Contains("D-77", g2.Explanation);
+        Assert.Contains("ACC-PRIYA", g2.Explanation);
+
+        // The two earliest other Accounts and Margaret make the smallest group of 3 that reaches the Ring threshold.
+        var g3 = Assert.Single(alert.Hits, h => h.RuleId == "G3");
+        Assert.Equal([derekReset.EventId, priyaReset.EventId, reset.EventId], g3.EvidenceEventIds);
+        Assert.Equal(reset.OccurredAt, g3.TriggeredAt);
+        Assert.Contains("D-77", g3.Explanation);
+
+        // By the email change: R0 10 + G2 25 + G3 20 (reset) + R1 30 (MFA) + R2 20 (email) = 105, past Critical at 90
+        // (rules.v2.json). The bank change comes the next day and adds R3 30, giving 135.
+        Assert.Equal(105, alert.Hits.Where(h => h.TriggeredAt <= email.OccurredAt).Sum(h => h.Points));
         Assert.True(email.OccurredAt < bank.OccurredAt);
+        Assert.Equal((135, RiskBand.Critical, "v2"), (alert.Score, alert.Band, alert.RulesVersion));
 
         var @case = Assert.Single(await CasesForAsync("ACC-MARGARET"));
         Assert.Equal(CaseStatus.Open, @case.Status);
@@ -67,24 +89,31 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
     }
 
     [Fact]
-    public async Task Posting_Margaret_projects_her_Account_linked_to_the_fraudster_device()
+    public async Task The_graph_links_Margaret_via_D77_to_the_three_earlier_Accounts_one_of_them_Confirmed_Fraud()
     {
-        await PostAsync(Load("margaret-ato"));
+        await PostAllAsync();
 
+        // The demo's Neo4j Browser query, returning rows instead of drawing the paths.
         var driver = factory.Services.GetRequiredService<IDriver>();
         var result = await driver.ExecutableQuery("""
-            MATCH (:Holder {holderId: 'HOLDER-MARGARET'})-[:OWNS]->(a:Account {accountId: 'ACC-MARGARET'})-[:USED_DEVICE]->(d:Device {value: 'D-77'})
-            RETURN count(*) AS links
+            MATCH (:Holder {holderId: 'HOLDER-MARGARET'})-[:OWNS]->(:Account {accountId: 'ACC-MARGARET'})
+                  -[:USED_DEVICE]->(:Device {value: 'D-77'})<-[:USED_DEVICE]-(other:Account)
+            OPTIONAL MATCH (fraud:Case {outcome: 'ConfirmedFraud'})-[:CONCERNS]->(other)
+            RETURN other.accountId AS accountId, fraud IS NOT NULL AS confirmedFraud
+            ORDER BY accountId
             """).ExecuteAsync(Ct);
-        Assert.Equal(1L, result.Result.Single()["links"].As<long>());
+
+        Assert.Equal(
+            [("ACC-DEREK", false), ("ACC-LENA", false), ("ACC-PRIYA", true)],
+            result.Result.Select(row => (row["accountId"].As<string>(), row["confirmedFraud"].As<bool>())));
     }
 
     [Fact]
     public async Task Mr_Patel_never_reaches_Medium()
     {
-        await PostAsync(Load("patel-house-move"));
+        await PostAllAsync();
 
-        // Usual laptop, usual country, no reset: nothing for any Rule to match, so not even a Low Alert.
+        // Usual laptop, usual country, no reset, and no identifier shared with anyone: not even a Low Alert.
         Assert.Empty(await AlertsForAsync("ACC-PATEL"));
     }
 }

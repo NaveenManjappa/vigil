@@ -5,7 +5,7 @@ using Vigil.Simulator;
 using Vigil.Simulator.Scenarios;
 
 // [--seed 42] [--holders 1000] [--rules config/rules.v1.json] [--out eval-reports]
-// scenario <file> [--rules config/rules.v1.json]
+// scenario <file> [--rules config/rules.v2.json]
 // Rules-only and in memory: no API, no database, no LLM, so it is free to run any time (PROJECT.md Section 10.3).
 var seed = int.Parse(Option("--seed") ?? "42");
 var holders = int.Parse(Option("--holders") ?? "1000");
@@ -16,7 +16,8 @@ var outFolder = Option("--out") ?? "eval-reports";
 if (args.FirstOrDefault() == "scenario")
 {
     var scenario = Scenario.Load(args.Length > 1 ? args[1] : throw new ArgumentException("scenario needs a file path."));
-    var rules = RuleSet.Load(rulesPath);
+    // Defaults to the API's rules, so the dry run shows the live Score less only the Graph Rules it says it skipped.
+    var rules = RuleSet.Load(Option("--rules") ?? Path.Combine("config", "rules.v2.json"));
     Console.Write(ScenarioReplay.Render(scenario, rules, ScenarioReplay.Replay(scenario, rules)));
     return;
 }

@@ -49,9 +49,13 @@ public sealed partial class Scenario
 
     public static Scenario Load(string path) => Parse(File.ReadAllText(path), path);
 
-    /// <summary>Ordered by file name, so the simulator posts them in the same order on every machine.</summary>
+    /// <summary>
+    /// Ordered by first event time, so history another Scenario links to is in the graph before it is posted, such as
+    /// D-77's earlier Accounts before Margaret. Ties keep file-name order, so every machine posts the same sequence.
+    /// </summary>
     public static IReadOnlyList<Scenario> LoadAll(string folder) =>
-        Directory.GetFiles(folder, "*.json").Order(StringComparer.Ordinal).Select(Load).ToList();
+        Directory.GetFiles(folder, "*.json").Order(StringComparer.Ordinal).Select(Load)
+            .OrderBy(s => s.Events().Min(e => e.OccurredAt)).ToList();
 
     /// <param name="source">Named in every error, so a typo in a hand-written file is found at once.</param>
     public static Scenario Parse(string json, string source)
@@ -65,6 +69,9 @@ public sealed partial class Scenario
         {
             throw new InvalidDataException($"{source}: {e.Message}", e);
         }
+
+        // A journey with no steps has nothing to detect, and no first event to order it by.
+        if (file.Steps.Count == 0) throw new InvalidDataException($"{source}: no steps.");
 
         var start = file.Start ?? DefaultStart;
         var holderId = file.HolderId ?? $"HOLDER-{file.AccountId}";

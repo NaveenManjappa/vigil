@@ -54,11 +54,14 @@ Dry-run it in memory to see the Score and Risk Band after each step:
 dotnet run --project src/Vigil.Evaluation -- scenario scenarios/my-story.json
 # | 3 | +10m | EmailChanged | fraudster | R2 +20: Password reset then contact change, 10 min apart; window 24h | 60 | High |
 # First reached High at step 3, EmailChanged (+10m); peak Critical.
+# Graph Rules G1, G2, G3 skipped: they need the graph, which a dry run does not have, so the live Score can be higher.
 ```
+
+The dry run uses the API's rules, `config/rules.v2.json`, but has no graph, so it scores sequence and first-sighting Rules only. Margaret's dry run peaks at 90; posted to the API after the D-77 Scenarios, she also gets G2 and G3.
 
 To try a rule change, edit a copy of the rules file and pass it with `--rules my-rules.json`. The scenario stays the same and only the verdict changes. Run the full evaluation with the same `--rules` to see what the change does to detection and false-positive rates.
 
-To post it to the running API, with the AppHost up, point the simulator at the API yourself, because outside Aspire it has no service discovery:
+Without `--scenario`, the simulator posts every shipped Scenario in order of its first event, so the earlier D-77 Accounts are in the graph before Margaret's takeover arrives. To post one to the running API, with the AppHost up, point the simulator at the API yourself, because outside Aspire it has no service discovery:
 
 ```bash
 services__api__http__0=http://localhost:5107 dotnet run --project src/Vigil.Simulator -- --scenario scenarios/my-story.json
