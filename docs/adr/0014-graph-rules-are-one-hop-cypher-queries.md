@@ -6,7 +6,7 @@ A Graph Rule is one short Cypher query in `Vigil.Graph` that asks the Projection
 
 A graph hit's trigger time is the OccurredAt of the event that created the completing link, which is the later of the two links' `firstSeen`. Its evidence is the event behind each link, with the triggering one last, the convention every Rule Hit follows. So the projector keeps, beside each relationship's `firstSeen`, the EventId that set it (`firstEventId`).
 
-Queries read the graph **as it is now**, with no filtering on `firstSeen`. Live ingestion projects each batch before scoring it, so "now" is the moment being scored; an Account scored before its link formed is lifted when it is next scored. Evaluation, once it scores Graph Rules later in Stage 2, is to get the same effect by replaying events into the graph in time order, so it never sees a link from the future. The trigger time still comes from the links, never the wall clock, so the hit lands in the right Risk Episode.
+Queries read the graph **as it is now**, with no filtering on `firstSeen`. Live ingestion projects each batch before scoring it, so "now" is the moment being scored; an Account scored before its link formed is lifted in the same request that forms it, by the neighbour re-check (ADR-0015). Evaluation, once it scores Graph Rules later in Stage 2, is to get the same effect by replaying events into the graph in time order, so it never sees a link from the future. The trigger time still comes from the links, never the wall clock, so the hit lands in the right Risk Episode.
 
 ## Considered Options
 

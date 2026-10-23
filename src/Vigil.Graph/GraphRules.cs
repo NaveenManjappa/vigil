@@ -1,12 +1,14 @@
 using Neo4j.Driver;
 using Vigil.Domain.Detection;
+using Vigil.Domain.Events;
 
 namespace Vigil.Graph;
 
 /// <summary>
 /// Runs a rule set's Graph Rules for one Account against the Projection and returns candidate Rule Hits for the
 /// Detector, which decides which ones count (ADR-0014). Each Graph Rule is one short, one-hop Cypher query that
-/// reads the graph as it is now; the rules file supplies its points and explanation.
+/// reads the graph as it is now; the rules file supplies its points and explanation. It also finds a batch's
+/// Neighbours, the other Accounts whose Graph Rule Hits the batch can change.
 /// </summary>
 public sealed class GraphRules(IDriver driver)
 {
@@ -35,6 +37,34 @@ public sealed class GraphRules(IDriver driver)
         }
 
         return hits;
+    }
+
+    /// <summary>
+    /// The Accounts outside the batch that share a Linking Identifier with it: a new link can change their Graph Rule
+    /// Hits, so ingestion re-checks them (ADR-0015). Sorted, so their locks are always taken in the same order.
+    /// </summary>
+    public async Task<IReadOnlyList<string>> NeighboursOfAsync(IReadOnlyCollection<PortalEvent> batch, CancellationToken ct)
+    {
+        var batchAccounts = batch.Select(e => e.AccountId).Distinct().ToList();
+        var neighbours = new SortedSet<string>(StringComparer.Ordinal);
+
+        foreach (var kind in IdentifierKind.Linking)
+        {
+            var values = kind.ValuesIn(batch).ToList();
+            if (values.Count == 0) continue;
+
+            // The label and relationship type are written in, as in the projection; they only come from IdentifierKind.
+            var result = await driver.ExecutableQuery($"""
+                    MATCH (i:{kind.Label})<-[:{kind.Relationship}]-(neighbour:Account)
+                    WHERE i.value IN $values AND NOT neighbour.accountId IN $batchAccounts
+                    RETURN DISTINCT neighbour.accountId AS accountId
+                    """)
+                .WithParameters(new { values, batchAccounts })
+                .ExecuteAsync(ct);
+            neighbours.UnionWith(result.Result.Select(row => row["accountId"].As<string>()));
+        }
+
+        return [.. neighbours];
     }
 
     // G1: this Account pays out to a bank account that an Account of a different Holder also pays out to.

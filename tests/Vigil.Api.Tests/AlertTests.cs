@@ -212,4 +212,49 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
             "Pays out to bank account BA-SHARED-G1, which ACC-G1-FIRST of a different Holder also pays out to");
         Assert.Equal(Monday.AddDays(1), hit.TriggeredAt);
     }
+
+    [Fact]
+    public async Task The_first_Account_on_a_shared_bank_account_is_lifted_when_another_Holders_Account_links_to_it()
+    {
+        var bankAccount = new Dictionary<string, string> { ["NewBankAccountHash"] = "BA-SHARED-NEIGHBOUR" };
+        var reset = Event("ACC-NEIGHBOUR-A", "PasswordReset", Monday);
+        var mfa = Event("ACC-NEIGHBOUR-A", "MfaEnrolled", Monday.AddMinutes(4));
+        var aBank = Event("ACC-NEIGHBOUR-A", "BankDetailsChanged", Monday.AddHours(1), bankAccount);
+        await PostAsync(reset.Body, mfa.Body, aBank.Body);
+        var before = await AlertForAsync("ACC-NEIGHBOUR-A");
+
+        var bBank = Event("ACC-NEIGHBOUR-B", "BankDetailsChanged", Monday.AddDays(1), bankAccount);
+        await PostAsync(bBank.Body);
+        var after = await AlertForAsync("ACC-NEIGHBOUR-A");
+
+        // R1 30, then G1 30 when B's link completed the pair a day later: 60, High.
+        Assert.Equal(before.Id, after.Id);
+        Assert.Equal(60, after.Score);
+        Assert.Equal(RiskBand.High, after.Band);
+        Assert.Equal(2, after.Hits.Count);
+        Assert.Equivalent(Assert.Single(before.Hits), after.Hits[0], strict: true);
+        AssertHit(after.Hits[1], "G1", 30, [aBank.Id, bBank.Id],
+            "Pays out to bank account BA-SHARED-NEIGHBOUR, which ACC-NEIGHBOUR-B of a different Holder also pays out to");
+        Assert.Equal(Monday.AddDays(1), after.Hits[1].TriggeredAt);
+    }
+
+    [Fact]
+    public async Task Two_Accounts_linking_to_each_other_at_the_same_time_both_get_G1()
+    {
+        // Each request locks its own Account and then the other's, so they may deadlock (timing decides); whether
+        // they do or one simply waits, both Accounts must end with G1.
+        var bankAccount = new Dictionary<string, string> { ["NewBankAccountHash"] = "BA-SHARED-RACE" };
+        await Task.WhenAll(
+            PostAsync(Event("ACC-RACE-A", "BankDetailsChanged", Monday, bankAccount).Body),
+            PostAsync(Event("ACC-RACE-B", "BankDetailsChanged", Monday.AddMinutes(1), bankAccount).Body));
+
+        Assert.Equal("G1", Assert.Single((await AlertForAsync("ACC-RACE-A")).Hits).RuleId);
+        Assert.Equal("G1", Assert.Single((await AlertForAsync("ACC-RACE-B")).Hits).RuleId);
+    }
+
+    private async Task<AlertDetail> AlertForAsync(string accountId)
+    {
+        var summary = Assert.Single(await AlertsAsync(), a => a.AccountId == accountId);
+        return (await _client.GetFromJsonAsync<AlertDetail>($"/alerts/{summary.Id}", Json, Ct))!;
+    }
 }

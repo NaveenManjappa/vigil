@@ -7,17 +7,23 @@ namespace Vigil.Graph;
 /// the value comes from on a Portal Event. Each kind is projected by one MERGE. Not every kind is a Linking
 /// Identifier: IP addresses and Addresses are projected for exploration only.
 /// </summary>
-internal sealed record IdentifierKind(string Label, string Relationship, Func<PortalEvent, string?> ValueOf)
+internal sealed record IdentifierKind(string Label, string Relationship, bool IsLinking, Func<PortalEvent, string?> ValueOf)
 {
     public static readonly IReadOnlyList<IdentifierKind> All =
     [
-        new("Device", "USED_DEVICE", e => e.DeviceId),
-        new("IpAddress", "SEEN_FROM", e => e.IpAddress),
-        new("Email", "HAS_EMAIL", e => e.Attributes.GetValueOrDefault("NewEmail")),
-        new("Phone", "HAS_PHONE", e => e.Attributes.GetValueOrDefault("NewPhone")),
-        new("BankAccount", "PAYS_TO", e => e.Attributes.GetValueOrDefault("NewBankAccountHash")),
-        new("Address", "LIVES_AT", e => e.Attributes.GetValueOrDefault("NewPostcode")),
+        new("Device", "USED_DEVICE", IsLinking: true, e => e.DeviceId),
+        new("IpAddress", "SEEN_FROM", IsLinking: false, e => e.IpAddress),
+        new("Email", "HAS_EMAIL", IsLinking: true, e => e.Attributes.GetValueOrDefault("NewEmail")),
+        new("Phone", "HAS_PHONE", IsLinking: true, e => e.Attributes.GetValueOrDefault("NewPhone")),
+        new("BankAccount", "PAYS_TO", IsLinking: true, e => e.Attributes.GetValueOrDefault("NewBankAccountHash")),
+        new("Address", "LIVES_AT", IsLinking: false, e => e.Attributes.GetValueOrDefault("NewPostcode")),
     ];
+
+    public static IEnumerable<IdentifierKind> Linking => All.Where(kind => kind.IsLinking);
+
+    // Blanks are dropped for the same reason the projection skips them: they would link strangers.
+    public IEnumerable<string> ValuesIn(IEnumerable<PortalEvent> batch) =>
+        batch.Select(ValueOf).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().Select(v => v!);
 
     // Labels and relationship types cannot be Cypher parameters, so they are written in; they only ever come from the list above.
     public string Cypher => $$"""

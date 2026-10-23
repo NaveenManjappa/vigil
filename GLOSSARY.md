@@ -92,6 +92,10 @@ _Avoid_: graph database (as the store of record), sync, mirror
 An identifier whose reuse across Accounts suggests one person or gang behind them: Device, BankAccount, Email and Phone. IP addresses and postal Addresses are projected for exploration but never link, because households, offices and mobile carriers share them innocently.
 _Avoid_: shared attribute, key, identifier (alone, when IP and Address are excluded)
 
+**Neighbour**:
+An Account outside an ingested batch that shares a Linking Identifier with one of the batch's events. A new link can change its Graph Rule Hits, so ingestion re-checks it in the same request (ADR-0015).
+_Avoid_: related account, connected account (a Ring is a different, larger thing)
+
 **Graph Rule**:
 A Rule that matches links between Accounts in the Projection rather than events on one Account, written as one short, one-hop Cypher query: G1 Shared bank account, where an Account pays out to a BankAccount that another Holder's Account also pays out to. It reads the graph as it is now and returns candidate Rule Hits that the Detector places in Risk Episodes like any other. Its trigger time is the OccurredAt of the event that completed the link, and its evidence is the linking events on every Account involved, with that event last (ADR-0014).
 _Avoid_: graph feature, graph check, network rule

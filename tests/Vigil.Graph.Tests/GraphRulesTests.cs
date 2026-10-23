@@ -23,6 +23,8 @@ public sealed class GraphRulesTests(Neo4jFixture neo4j) : IClassFixture<Neo4jFix
         new(Guid.NewGuid(), account, holder ?? $"HOLDER-{account}", EventType.BankDetailsChanged, at, $"D-{account}", "198.51.100.1", "GB", "web",
             new Dictionary<string, string> { ["NewBankAccountHash"] = bankAccount });
 
+    private static Dictionary<string, string> Attribute(string key, string value) => new() { [key] = value };
+
     private Task ProjectAsync(params PortalEvent[] events) => _projector.ProjectAsync(events, Ct);
 
     [Fact]
@@ -117,6 +119,31 @@ public sealed class GraphRulesTests(Neo4jFixture neo4j) : IClassFixture<Neo4jFix
         await ProjectAsync(BankChange("ACC-1", Monday, "BA-9f31"), BankChange("ACC-2", Monday.AddDays(2), "BA-9f31"));
 
         Assert.Empty(await _rules.HitsForAsync("ACC-2", V1, Ct));
+    }
+
+    [Fact]
+    public async Task Neighbours_are_the_other_Accounts_linked_to_the_batchs_Linking_Identifiers()
+    {
+        // Every event here comes from IP 198.51.100.1, so ACC-IP-ONLY would be a neighbour if IPs linked.
+        await ProjectAsync(
+            BankChange("ACC-BANK", Monday, "BA-9f31"),
+            BankChange("ACC-DEVICE", Monday, "BA-0001") with { DeviceId = "D-77" },
+            BankChange("ACC-EMAIL", Monday, "BA-0002") with { Attributes = Attribute("NewEmail", "x@example.com") },
+            BankChange("ACC-PHONE", Monday, "BA-0003") with { Attributes = Attribute("NewPhone", "+447700900123") },
+            BankChange("ACC-IP-ONLY", Monday, "BA-0004"),
+            BankChange("ACC-OTHER-BATCH", Monday, "BA-0005"));
+
+        PortalEvent[] batch =
+        [
+            BankChange("ACC-NEW", Monday.AddDays(1), "BA-9f31") with { DeviceId = "D-77" },
+            BankChange("ACC-NEW", Monday.AddDays(1), "BA-0006") with { Attributes = Attribute("NewEmail", "x@example.com") },
+            BankChange("ACC-NEW", Monday.AddDays(1), "BA-0007") with { Attributes = Attribute("NewPhone", "+447700900123") },
+            // The batch's own Accounts are scored anyway, so one linked to another is not its neighbour.
+            BankChange("ACC-OTHER-BATCH", Monday.AddDays(1), "BA-9f31"),
+        ];
+        await ProjectAsync(batch);
+
+        Assert.Equal(["ACC-BANK", "ACC-DEVICE", "ACC-EMAIL", "ACC-PHONE"], await _rules.NeighboursOfAsync(batch, Ct));
     }
 
     [Fact]
