@@ -90,7 +90,7 @@ Margaret holds 2,000 shares (~£18,000) and logs in a few times a year from a la
 
 **Detected before the bank-detail change** — the explicit MVP goal.
 
-Until Stage 3 can block it, the simulator still posts Tuesday's `BankDetailsChanged`, so the live Alert goes on to add R3 (+30) and ends at 135.
+Vigil records the analyst's block as an Intervention for the portal to enforce; it does not reject later events itself, so the simulator still posts Tuesday's `BankDetailsChanged`, and the live Alert goes on to add R3 (+30) and ends at 135.
 
 Explainable alert:
 
@@ -594,6 +594,8 @@ Each stage ends with a **"Done when"** checklist and a short **"Explain it"** li
 - `POST /cases/{id}/decision` resumes the workflow; Act step writes audit entry.
 - Workflow tests with a fake `IChatClient` (approve, reject, reviewer-reject paths).
 - OpenTelemetry on agents; token/cost metrics.
+
+> **Stage 3 decisions (grill session, 2026-10-23):** spec in GitHub issue #28, built as sub-issues #29–#36. Each Case gets one Investigation, enqueued on an in-process `ICaseQueue` after the ingest commit and run by a background worker; a daily limit and an on/off switch guard the budget. `Llm:Provider` chooses Azure OpenAI or a free scripted Fake. Every string sent to the LLM is masked with per-Investigation Pseudonyms (value replacement, so identifiers inside Rule Hit explanations are caught too), and agents cite short Evidence Refs (`E-n`, `G-n`) that code validates before the Reviewer runs. Enrich is thin; the Investigator must call three tools bound to the Case's Account (timeline, graph neighbourhood, Holder baseline), so `GetRuleHits` and `GetKnownFraudMatches` from Section 9.2 are dropped. A rejected Finding gets one retry, then reaches the analyst with a Review Flag; an LLM failure reaches the analyst as InvestigationFailed. The approval pause is a MAF `RequestPort` with checkpoints in a Postgres table, and `POST /cases/{id}/decision` resumes it. Act records an Intervention and Audit Entries and enforces nothing; a ConfirmedFraud decision records a Confirmed Fraud with Source = Analyst, so G2 lifts its Neighbours. One trace runs from ingestion to the Reviewer; the decision run is linked to it. See GLOSSARY.md and ADR-0004 to ADR-0009.
 
 **Done when**
 - [ ] Margaret's case produces a masked, evidence-cited summary and waits in `AwaitingApproval`.
