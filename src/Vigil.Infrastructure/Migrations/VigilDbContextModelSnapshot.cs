@@ -104,6 +104,9 @@ namespace Vigil.Infrastructure.Migrations
                     b.Property<Guid>("AlertId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("EvidenceRefs")
+                        .HasColumnType("jsonb");
+
                     b.Property<string>("Finding")
                         .HasColumnType("jsonb");
 
@@ -218,6 +221,43 @@ namespace Vigil.Infrastructure.Migrations
                     b.HasKey("AccountId");
 
                     b.ToTable("confirmed_frauds", (string)null);
+                });
+
+            modelBuilder.Entity("Vigil.Infrastructure.Workflow.StoredCheckpoint", b =>
+                {
+                    b.Property<long>("Position")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Position"));
+
+                    b.Property<string>("CheckpointId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ParentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Position");
+
+                    b.HasIndex("SessionId", "CheckpointId")
+                        .IsUnique();
+
+                    b.ToTable("workflow_checkpoints", (string)null);
                 });
 
             modelBuilder.Entity("Vigil.Infrastructure.Alerts.StoredRuleHit", b =>

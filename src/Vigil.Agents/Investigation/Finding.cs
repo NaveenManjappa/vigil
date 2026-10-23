@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace Vigil.Agents;
 
 public enum Verdict
@@ -32,4 +34,11 @@ public sealed record Finding(
     Confidence Confidence,
     string Summary,
     Recommendation Recommendation,
-    IReadOnlyList<string> Evidence);
+    IReadOnlyList<string> Evidence)
+{
+    /// <summary>The Finding as stored with its Case: the shape the model writes, enums by name.</summary>
+    public string ToJson() => JsonSerializer.Serialize(this, Investigator.Json);
+
+    public static Finding FromJson(string json) =>
+        JsonSerializer.Deserialize<Finding>(json, Investigator.Json) ?? throw new JsonException("A stored Finding was null.");
+}

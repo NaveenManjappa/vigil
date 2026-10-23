@@ -5,6 +5,7 @@ using Vigil.Infrastructure.Alerts;
 using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
 using Vigil.Infrastructure.Fraud;
+using Vigil.Infrastructure.Workflow;
 
 namespace Vigil.Infrastructure;
 
@@ -14,6 +15,7 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
     public DbSet<StoredAlert> Alerts => Set<StoredAlert>();
     public DbSet<StoredCase> Cases => Set<StoredCase>();
     public DbSet<StoredConfirmedFraud> ConfirmedFrauds => Set<StoredConfirmedFraud>();
+    public DbSet<StoredCheckpoint> Checkpoints => Set<StoredCheckpoint>();
 
     /// <summary>
     /// Serialises detection for one Account across concurrent requests, so two ingests cannot both
@@ -25,6 +27,18 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureAlerts(modelBuilder);
+
+        var checkpoints = modelBuilder.Entity<StoredCheckpoint>();
+        checkpoints.ToTable("workflow_checkpoints");
+        checkpoints.HasKey(c => c.Position);
+        checkpoints.Property(c => c.Position).UseIdentityAlwaysColumn();
+        checkpoints.Property(c => c.SessionId).HasMaxLength(64);
+        checkpoints.Property(c => c.CheckpointId).HasMaxLength(64);
+        checkpoints.Property(c => c.ParentId).HasMaxLength(64);
+        checkpoints.HasIndex(c => new { c.SessionId, c.CheckpointId }).IsUnique();
+        // json, not jsonb: jsonb reorders keys, and System.Text.Json reads polymorphic payloads only when their
+        // type marker comes first.
+        checkpoints.Property(c => c.Payload).HasColumnType("json");
 
         var frauds = modelBuilder.Entity<StoredConfirmedFraud>();
         frauds.ToTable("confirmed_frauds");
@@ -91,6 +105,15 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
 
         // Kept as raw JSON here: the Finding's shape belongs to Vigil.Agents, which Infrastructure does not reference.
         cases.Property(c => c.Finding).HasColumnType("jsonb");
+        cases.Property(c => c.EvidenceRefs)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, JsonSerializerOptions.Default),
+                v => v == null ? null : JsonSerializer.Deserialize<Dictionary<string, List<Guid>>>(v, JsonSerializerOptions.Default),
+                new ValueComparer<Dictionary<string, List<Guid>>?>(
+                    (a, b) => JsonSerializer.Serialize(a, JsonSerializerOptions.Default) == JsonSerializer.Serialize(b, JsonSerializerOptions.Default),
+                    v => JsonSerializer.Serialize(v, JsonSerializerOptions.Default).GetHashCode(),
+                    v => v == null ? null : v.ToDictionary(e => e.Key, e => e.Value.ToList())));
         cases.Property(c => c.PseudonymMap)
             .HasColumnType("jsonb")
             .HasConversion(

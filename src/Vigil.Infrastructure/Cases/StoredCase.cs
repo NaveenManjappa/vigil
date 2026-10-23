@@ -30,5 +30,8 @@ public sealed class StoredCase
     /// <summary>Pseudonym to real identifier, for this Case's Investigation only.</summary>
     public Dictionary<string, string>? PseudonymMap { get; set; }
 
+    /// <summary>Every Evidence Ref the Investigation issued, with the EventIds it stands for, so cited refs can be resolved.</summary>
+    public Dictionary<string, List<Guid>>? EvidenceRefs { get; set; }
+
     public string? PromptVersion { get; set; }
 }

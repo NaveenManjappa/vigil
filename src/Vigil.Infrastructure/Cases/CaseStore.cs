@@ -27,6 +27,10 @@ public sealed class CaseStore(VigilDbContext db)
     public async Task<StoredCase?> FindAsync(Guid caseId, CancellationToken ct = default) =>
         await db.Cases.SingleOrDefaultAsync(c => c.CaseId == caseId, ct);
 
+    /// <summary>Tracked, with its Alert and Rule Hits: what an Investigation starts from and the Case detail shows.</summary>
+    public async Task<StoredCase?> FindWithAlertAsync(Guid caseId, CancellationToken ct = default) =>
+        await db.Cases.Include(c => c.Alert).ThenInclude(a => a.Hits).SingleOrDefaultAsync(c => c.CaseId == caseId, ct);
+
     public Task SaveAsync(CancellationToken ct = default) => db.SaveChangesAsync(ct);
 
     public async Task<int> InvestigationsStartedSinceAsync(DateTimeOffset since, CancellationToken ct = default) =>

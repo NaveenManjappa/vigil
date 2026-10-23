@@ -8,7 +8,7 @@ Postgres, not the channel, is the durable record. The queue is lost on a crash, 
 
 The budget guard sits in the worker. `Investigation:Enabled` switches Investigations off, and `Investigation:DailyLimit` (20) caps those started per UTC day. The worker counts the Cases with an `InvestigationStartedAt` in the current UTC day, so the count survives a restart. A Case over the limit, or arriving while Investigations are off, stays Open, marked not investigated, and the runner is never called. The worker takes one Case at a time, which keeps that count free of races. The design assumes a single API instance.
 
-The worker calls `IInvestigationRunner`. Until the Investigation workflow arrives (Stage 3.6), the default runner moves the Case straight to AwaitingApproval.
+The worker calls `IInvestigationRunner`, which runs the Investigation workflow up to Await Approval (ADR-0005).
 
 ## Considered Options
 

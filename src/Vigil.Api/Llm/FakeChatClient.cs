@@ -57,8 +57,8 @@ public sealed partial class FakeChatClient : IChatClient
         {
             verdict = "LikelyAccountTakeover",
             confidence = "High",
-            summary = "Scripted Finding from the Fake provider: the flagged activity came from a device and country the " +
-                      "Holder does not use, and that device is shared with a Confirmed Fraud Account.",
+            summary = $"Scripted Finding from the Fake provider: the flagged activity on {AccountPseudonym().Match(brief).Value} came " +
+                      "from a device and country the Holder does not use, and that device is shared with a Confirmed Fraud Account.",
             recommendation = "BlockBankChanges",
             evidence,
         });
@@ -66,6 +66,10 @@ public sealed partial class FakeChatClient : IChatClient
 
     [GeneratedRegex(@"\b[EG]-\d+\b")]
     private static partial Regex EvidenceRef();
+
+    // Named in the summary so the analyst-facing read visibly unmasks it.
+    [GeneratedRegex(@"ACCOUNT-\d+")]
+    private static partial Regex AccountPseudonym();
 
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null,
