@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Vigil.Domain.Telemetry;
 
 namespace Vigil.Agents;
 
@@ -21,7 +22,7 @@ public sealed class Reviewer
     public const string AgentName = "Reviewer";
     public const string PromptVersion = "reviewer.v1";
 
-    private readonly ChatClientAgent _agent;
+    private readonly AIAgent _agent;
     private readonly IChatClient _chat;
 
     public Reviewer(IChatClient chat)
@@ -32,7 +33,9 @@ public sealed class Reviewer
             Id = AgentId,
             Name = AgentName,
             ChatOptions = new ChatOptions { Instructions = Prompts.Load(PromptVersion), Temperature = 0 },
-        });
+        })
+            // The invoke_agent span, tagged with the agent's Id, that its chat and tool spans nest under.
+            .AsBuilder().UseOpenTelemetry(sourceName: VigilTelemetry.AgentsSourceName).Build();
     }
 
     /// <summary>

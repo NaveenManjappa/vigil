@@ -152,6 +152,8 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
         cases.HasKey(c => c.CaseId);
         cases.Property(c => c.Status).HasConversion<string>().HasMaxLength(32);
         cases.Property(c => c.PromptVersion).HasMaxLength(64);
+        // A W3C traceparent is 55 characters.
+        cases.Property(c => c.InvestigationTrace).HasMaxLength(64);
 
         // Kept as raw JSON here: the Finding's shape belongs to Vigil.Agents, which Infrastructure does not reference.
         cases.Property(c => c.Finding).HasColumnType("jsonb");

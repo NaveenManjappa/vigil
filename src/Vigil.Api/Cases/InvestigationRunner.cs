@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Vigil.Agents;
 using Vigil.Domain.Audit;
 using Vigil.Domain.Cases;
@@ -20,13 +21,15 @@ public interface IInvestigationRunner
 /// Audit Entry for each agent's step. The Finding is stored masked, beside the map that unmasks it (ADR-0008).
 /// </summary>
 public sealed class WorkflowInvestigationRunner(
-    CaseStore cases, AuditStore audit, InvestigationWorkflow workflow, TimeProvider clock) : IInvestigationRunner
+    CaseStore cases, AuditStore audit, InvestigationWorkflow workflow, InvestigationMetrics metrics, TimeProvider clock) : IInvestigationRunner
 {
     public async Task RunAsync(Guid caseId, CancellationToken ct)
     {
         var @case = await cases.FindWithAlertAsync(caseId, ct) ?? throw new InvalidOperationException($"Case {caseId} not found.");
 
+        var started = clock.GetTimestamp();
         var request = await workflow.InvestigateAsync(caseId, @case.Alert.ToDomain(), ct);
+        metrics.Record(request.Usage, clock.GetElapsedTime(started));
 
         // Written only once the paused run's checkpoint is saved, so an AwaitingApproval Case always has one to resume.
         @case.Finding = request.Finding?.ToJson();
@@ -35,6 +38,7 @@ public sealed class WorkflowInvestigationRunner(
         @case.PseudonymMap = new(request.PseudonymMap);
         @case.EvidenceRefs = request.EvidenceRefs.ToDictionary(r => r.Key, r => r.Value.ToList());
         @case.PromptVersion = request.PromptVersion;
+        @case.InvestigationTrace = Activity.Current?.Id;
         @case.Status = CaseStatus.AwaitingApproval;
 
         // Saved with the Case in one transaction, so the entries exist exactly when the Case is awaiting approval.

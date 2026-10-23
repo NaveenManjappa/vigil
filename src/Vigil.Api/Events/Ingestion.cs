@@ -5,6 +5,7 @@ using Vigil.Detection;
 using Vigil.Domain.Detection;
 using Vigil.Domain.Events;
 using Vigil.Domain.Fraud;
+using Vigil.Domain.Telemetry;
 using Vigil.Graph;
 using Vigil.Infrastructure;
 using Vigil.Infrastructure.Alerts;
@@ -100,9 +101,15 @@ public sealed class Ingestion(
 
         foreach (var accountId in batchAccounts.Concat(neighbours))
         {
+            // Here rather than in the Detector, which stays a pure function that evaluation calls thousands of times.
+            using var span = VigilTelemetry.Source.StartActivity("detect");
+            span?.SetTag("vigil.account_id", accountId);
+
             var timeline = await events.GetTimelineAsync(accountId, ct);
             var graphHits = await graphRules.HitsForAsync(accountId, ruleSet, ct);
-            opened.AddRange(await alerts.SaveAsync(accountId, stored => Detector.Detect(timeline, ruleSet, stored, graphHits), ct));
+            var newCases = await alerts.SaveAsync(accountId, stored => Detector.Detect(timeline, ruleSet, stored, graphHits), ct);
+            span?.SetTag("vigil.cases_opened", newCases.Count);
+            opened.AddRange(newCases);
         }
     }
 }

@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Vigil.Domain.Telemetry;
 
 namespace Vigil.Agents;
 
@@ -28,7 +29,7 @@ public sealed class Investigator
         TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
     };
 
-    private readonly ChatClientAgent _agent;
+    private readonly AIAgent _agent;
     private readonly IInvestigationSource _source;
     private readonly IChatClient _chat;
 
@@ -41,7 +42,9 @@ public sealed class Investigator
             Id = AgentId,
             Name = AgentName,
             ChatOptions = new ChatOptions { Instructions = Prompts.Load(PromptVersion), Temperature = 0 },
-        });
+        })
+            // The invoke_agent span, tagged with the agent's Id, that its chat and tool spans nest under.
+            .AsBuilder().UseOpenTelemetry(sourceName: VigilTelemetry.AgentsSourceName).Build();
     }
 
     /// <summary>

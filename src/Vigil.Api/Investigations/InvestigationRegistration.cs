@@ -26,6 +26,7 @@ public static class InvestigationRegistration
         services.AddScoped<IActStep, ActStep>();
         services.AddScoped<InvestigationWorkflow>();
         services.AddScoped<IInvestigationRunner, WorkflowInvestigationRunner>();
+        services.AddSingleton<InvestigationMetrics>();
         return services;
     }
 }

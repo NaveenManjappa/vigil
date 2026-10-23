@@ -36,8 +36,7 @@ public sealed partial class TokenLoggingChatClient(IChatClient inner, LlmOptions
     {
         var input = response.Usage?.InputTokenCount ?? 0;
         var output = response.Usage?.OutputTokenCount ?? 0;
-        var cost = input / 1000m * prices.InputPricePer1kTokens + output / 1000m * prices.OutputPricePer1kTokens;
-        LogTokens(response.ModelId ?? "unknown", input, output, cost);
+        LogTokens(response.ModelId ?? "unknown", input, output, prices.CostOf(input, output));
     }
 
     [LoggerMessage(Level = LogLevel.Information,

@@ -86,6 +86,9 @@ public sealed class InvestigationWorkflow(
             .AddEdge(investigate, approval)
             .AddEdge(approval, actOnDecision)
             .WithOutputFrom(actOnDecision)
+            // Workflow and executor spans, under whatever Activity is current when the run starts. Message payloads
+            // stay out of the trace, as the prompts do.
+            .WithOpenTelemetry(o => o.EnableSensitiveData = false)
             .Build();
     }
 

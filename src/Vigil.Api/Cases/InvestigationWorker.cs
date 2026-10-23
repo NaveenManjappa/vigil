@@ -1,5 +1,7 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Options;
 using Vigil.Domain.Cases;
+using Vigil.Domain.Telemetry;
 using Vigil.Infrastructure.Cases;
 
 namespace Vigil.Api.Cases;
@@ -28,14 +30,24 @@ public sealed class InvestigationWorker(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         // A crash loses the in-memory queue and can interrupt a run, but the Cases are still in Postgres.
-        foreach (var caseId in _unfinished) await InvestigateSafelyAsync(caseId, stoppingToken);
+        // Their ingest requests' traces are long gone, so each starts a trace of its own.
+        foreach (var caseId in _unfinished) await InvestigateSafelyAsync(caseId, openedIn: default, stoppingToken);
 
         await foreach (var item in queue.DequeueAllAsync(stoppingToken))
-            await InvestigateSafelyAsync(item.CaseId, stoppingToken);
+            await InvestigateSafelyAsync(item.CaseId, item.OpenedIn, stoppingToken);
     }
 
-    private async Task InvestigateSafelyAsync(Guid caseId, CancellationToken ct)
+    private async Task InvestigateSafelyAsync(Guid caseId, ActivityContext openedIn, CancellationToken ct)
     {
+        // A default parent would make StartActivity fall back to whatever is current, so with no ingest trace to
+        // join the span is made a root explicitly.
+        if (openedIn == default) Activity.Current = null;
+
+        // A child of the ingest request, so one trace runs from ingestion through detection and the graph to both
+        // agents; the workflow's own spans nest under this one because it is current when the run starts.
+        using var span = VigilTelemetry.Source.StartActivity("investigate case", ActivityKind.Internal, openedIn);
+        span?.SetTag("vigil.case_id", caseId.ToString());
+
         try
         {
             await InvestigateAsync(caseId, ct);
@@ -44,6 +56,7 @@ public sealed class InvestigationWorker(
         {
             // The Case stays Investigating, so the next startup tries it again; one bad Case must not stop the rest.
             logger.LogError(ex, "Investigation of Case {CaseId} failed", caseId);
+            span?.SetStatus(ActivityStatusCode.Error, ex.Message);
         }
     }
 

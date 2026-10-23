@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using Vigil.Agents;
 using Vigil.Domain.Cases;
 using Vigil.Domain.Detection;
+using Vigil.Domain.Telemetry;
 using Vigil.Infrastructure.Audit;
 using Vigil.Infrastructure.Cases;
 
@@ -102,6 +104,12 @@ public static class CaseEndpoints
         if (@case is null) return Results.NotFound();
         if (@case.Status != CaseStatus.AwaitingApproval)
             return Results.Problem($"Case {id} is {@case.Status}; a decision is accepted only in AwaitingApproval.", statusCode: StatusCodes.Status409Conflict);
+
+        // Under this request's trace, not the Investigation's: an approval can wait for days, which would stretch that
+        // trace across them. The link still leads from the decision back to the Investigation it answers.
+        ActivityLink[] links = ActivityContext.TryParse(@case.InvestigationTrace, null, out var investigation) ? [new(investigation)] : [];
+        using var span = VigilTelemetry.Source.StartActivity("decide case", ActivityKind.Internal, parentContext: default, links: links);
+        span?.SetTag("vigil.case_id", id.ToString());
 
         try
         {

@@ -2,6 +2,7 @@ using System.ClientModel;
 using Microsoft.Extensions.AI;
 using OpenAI;
 using Vigil.Api.Llm;
+using Vigil.Domain.Telemetry;
 
 // In the DI namespace, like the framework's own Add* extensions, so Program.cs needs no extra using.
 namespace Microsoft.Extensions.DependencyInjection;
@@ -26,7 +27,11 @@ public static class LlmRegistration
         };
 
         services.AddChatClient(client)
-            .Use((inner, sp) => new TokenLoggingChatClient(inner, options, sp.GetRequiredService<ILogger<TokenLoggingChatClient>>()));
+            .Use((inner, sp) => new TokenLoggingChatClient(inner, options, sp.GetRequiredService<ILogger<TokenLoggingChatClient>>()))
+            // Below the agents' function invoker, which finds this layer's ActivitySource and puts its execute_tool
+            // spans beside each chat span. Prompts stay out of the trace: they are masked, but would bloat it.
+            .UseOpenTelemetry(sourceName: VigilTelemetry.LlmSourceName, configure: c => c.EnableSensitiveData = false);
+        services.AddSingleton(options);
         return services;
     }
 

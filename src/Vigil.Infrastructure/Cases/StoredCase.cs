@@ -35,6 +35,12 @@ public sealed class StoredCase
 
     public string? PromptVersion { get; set; }
 
+    /// <summary>
+    /// The Investigation span as a W3C traceparent, so the decision's own trace can link back to it however long the
+    /// approval waits. Null when nothing was tracing the Investigation.
+    /// </summary>
+    public string? InvestigationTrace { get; set; }
+
     /// <summary>Set once, by Act; null until the analyst decides.</summary>
     public StoredAnalystDecision? Decision { get; set; }
 

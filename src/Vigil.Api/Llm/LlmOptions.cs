@@ -27,4 +27,8 @@ public sealed class LlmOptions
 
     /// <summary>Pounds per 1,000 output tokens.</summary>
     public decimal OutputPricePer1kTokens { get; set; }
+
+    /// <summary>The estimated £ for a number of tokens, at the configured prices.</summary>
+    public decimal CostOf(long inputTokens, long outputTokens) =>
+        inputTokens / 1000m * InputPricePer1kTokens + outputTokens / 1000m * OutputPricePer1kTokens;
 }

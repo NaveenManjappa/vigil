@@ -204,6 +204,10 @@ namespace Vigil.Infrastructure.Migrations
                     b.Property<DateTimeOffset?>("InvestigationStartedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("InvestigationTrace")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
                     b.Property<bool>("NotInvestigated")
                         .HasColumnType("boolean");
 
