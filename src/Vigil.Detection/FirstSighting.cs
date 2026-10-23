@@ -11,7 +11,6 @@ namespace Vigil.Detection;
 internal static class FirstSighting
 {
     /// <param name="timeline">The Account's events, already in OccurredAt order.</param>
-    /// <param name="index">Position of the event being evaluated.</param>
     public static RuleHit? Match(Rule rule, IReadOnlyList<PortalEvent> timeline, int index)
     {
         // Everything is new on an Account's first event, so it says nothing about whether this one is unusual.

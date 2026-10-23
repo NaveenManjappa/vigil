@@ -1,0 +1,16 @@
+{
+  "name": "margaret-ato",
+  "description": "PROJECT.md Section 3.1: after months of logins from her laptop in Reading, a fraudster with Margaret's email password takes over her account from a new device in Romania, then tries to redirect payouts the next day.",
+  "accountId": "ACC-MARGARET",
+  "holderId": "HOLDER-MARGARET",
+  "baseline": { "device": "D-MARGARET-LAPTOP", "ip": "203.0.113.51", "country": "GB" },
+  "actors": {
+    "fraudster": { "device": "D-77", "ip": "198.51.100.77", "country": "RO" }
+  },
+  "steps": [
+    { "after": "0m", "type": "PasswordReset", "as": "fraudster" },
+    { "after": "4m", "type": "MfaEnrolled", "as": "fraudster" },
+    { "after": "10m", "type": "EmailChanged", "as": "fraudster", "attributes": { "NewEmail": "m.attacker@example.net" } },
+    { "after": "1d5h", "type": "BankDetailsChanged", "as": "fraudster", "attributes": { "NewBankAccountHash": "BA-9f31" } }
+  ]
+}

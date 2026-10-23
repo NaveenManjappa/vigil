@@ -3,7 +3,6 @@ using Vigil.Domain.Events;
 
 namespace Vigil.Simulator.Personas;
 
-/// <summary>Builds one Account's Portal Events for a Persona on the simulated clock.</summary>
 internal sealed class AccountBuilder
 {
     private static readonly string[] FraudCountries = ["RO", "NG", "BR", "VN"];

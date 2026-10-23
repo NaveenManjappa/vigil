@@ -10,7 +10,6 @@ namespace Vigil.Detection;
 internal static class SequenceMatcher
 {
     /// <param name="timeline">The Account's events, already in OccurredAt order.</param>
-    /// <param name="index">Position of the event being evaluated as step B.</param>
     public static RuleHit? Match(Rule rule, IReadOnlyList<PortalEvent> timeline, int index)
     {
         var b = timeline[index];

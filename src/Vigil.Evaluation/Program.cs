@@ -2,13 +2,24 @@ using Vigil.Domain.Datasets;
 using Vigil.Domain.Detection;
 using Vigil.Evaluation;
 using Vigil.Simulator;
+using Vigil.Simulator.Scenarios;
 
 // [--seed 42] [--holders 1000] [--rules config/rules.v1.json] [--out eval-reports]
+// scenario <file> [--rules config/rules.v1.json]
 // Rules-only and in memory: no API, no database, no LLM, so it is free to run any time (PROJECT.md Section 10.3).
 var seed = int.Parse(Option("--seed") ?? "42");
 var holders = int.Parse(Option("--holders") ?? "1000");
 var rulesPath = Option("--rules") ?? Path.Combine("config", "rules.v1.json");
 var outFolder = Option("--out") ?? "eval-reports";
+
+// Printed rather than written to eval-reports/: a dry run is for trying a journey or a rule change live, not for comparing runs.
+if (args.FirstOrDefault() == "scenario")
+{
+    var scenario = Scenario.Load(args.Length > 1 ? args[1] : throw new ArgumentException("scenario needs a file path."));
+    var rules = RuleSet.Load(rulesPath);
+    Console.Write(ScenarioReplay.Render(scenario, rules, ScenarioReplay.Replay(scenario, rules)));
+    return;
+}
 
 // Datasets are not committed, so the seeded one is regenerated when missing; the same seed gives the same file.
 var datasetPath = Path.Combine("datasets", $"seed-{seed}-holders-{holders}.jsonl");

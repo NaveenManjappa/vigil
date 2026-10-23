@@ -21,7 +21,7 @@ The portal component that emits a family of Portal Events, such as authenticatio
 _Avoid_: feed, upstream
 
 **Scenario**:
-One named, hand-scripted Account journey with fixed timestamps, such as Margaret's takeover or Mr Patel's house move, posted to the API to demonstrate detection end to end.
+One named, hand-scripted Account journey with fixed timestamps, such as Margaret's takeover or Mr Patel's house move, stored as a JSON file in `scenarios/`. The simulator posts it to the API to demonstrate detection end to end, and evaluation can dry-run it against any rule set.
 _Avoid_: test case, fixture, persona (a Persona is a template that generates many randomised Accounts; a Scenario is one fixed script)
 
 **Persona**:

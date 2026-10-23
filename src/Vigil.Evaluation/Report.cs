@@ -8,7 +8,6 @@ namespace Vigil.Evaluation;
 /// <summary>What identifies one evaluation run, so two reports can be compared fairly.</summary>
 public sealed record EvaluationRun(string RunId, int Seed, int Holders, string RulesVersion, string DatasetPath);
 
-/// <summary>Renders an <see cref="EvaluationResult"/> as the markdown report written to eval-reports/.</summary>
 public static class Report
 {
     // PROJECT.md Section 10.1's expected outcome per Persona, printed beside the actual one so a gap is obvious.

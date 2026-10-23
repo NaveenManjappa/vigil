@@ -20,6 +20,8 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
     private readonly HttpClient _client = factory.CreateClient();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
+    private static Scenario Load(string name) => Scenario.Load(Path.Combine(AppContext.BaseDirectory, "scenarios", $"{name}.json"));
+
     private async Task PostAsync(Scenario scenario) =>
         (await _client.PostAsJsonAsync("/events", scenario.Events(), Json, Ct)).EnsureSuccessStatusCode();
 
@@ -32,7 +34,7 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
     [Fact]
     public async Task Margaret_reaches_High_at_the_email_change_before_any_bank_change()
     {
-        var scenario = new MargaretAto();
+        var scenario = Load("margaret-ato");
         var events = scenario.Events();
         var reset = events.Single(e => e.Type == EventType.PasswordReset);
         var mfa = events.Single(e => e.Type == EventType.MfaEnrolled);
@@ -65,7 +67,7 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
     [Fact]
     public async Task Mr_Patel_never_reaches_Medium()
     {
-        await PostAsync(new MrPatelHouseMove());
+        await PostAsync(Load("patel-house-move"));
 
         // Usual laptop, usual country, no reset: nothing for any Rule to match, so not even a Low Alert.
         Assert.Empty(await AlertsForAsync("ACC-PATEL"));

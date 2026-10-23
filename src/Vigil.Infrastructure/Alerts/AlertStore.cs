@@ -50,7 +50,6 @@ public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
         await db.SaveChangesAsync(ct);
     }
 
-    /// <summary>Riskiest first.</summary>
     public async Task<IReadOnlyList<StoredAlert>> ListAsync(RiskBand? band, CancellationToken ct = default) =>
         await db.Alerts
             .AsNoTracking()

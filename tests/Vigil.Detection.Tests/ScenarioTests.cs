@@ -9,10 +9,12 @@ public sealed class ScenarioTests
 {
     private static readonly RuleSet Rules = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.v1.json"));
 
+    private static Scenario Load(string name) => Scenario.Load(Path.Combine(AppContext.BaseDirectory, "scenarios", $"{name}.json"));
+
     [Fact]
     public void Margaret_is_High_at_the_email_change_before_any_bank_change()
     {
-        var timeline = new MargaretAto().Events();
+        var timeline = Load("margaret-ato").Events();
         var email = timeline.Single(e => e.Type == EventType.EmailChanged);
         var bank = timeline.Single(e => e.Type == EventType.BankDetailsChanged);
         Assert.True(email.OccurredAt < bank.OccurredAt);
@@ -30,6 +32,6 @@ public sealed class ScenarioTests
     [Fact]
     public void Mr_Patel_moving_house_raises_no_alert()
     {
-        Assert.Empty(Detector.Detect(new MrPatelHouseMove().Events(), Rules));
+        Assert.Empty(Detector.Detect(Load("patel-house-move").Events(), Rules));
     }
 }

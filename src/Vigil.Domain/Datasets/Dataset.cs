@@ -33,10 +33,8 @@ public sealed record Label(Persona Persona, FraudKind? FraudKind)
     public bool IsFraud => FraudKind is not null;
 }
 
-/// <summary>One line of a Dataset: an Account's Portal Events in timeline order, and its Label.</summary>
 public sealed record LabelledAccount(string AccountId, Label Label, IReadOnlyList<PortalEvent> Events);
 
-/// <summary>A Dataset is stored as JSON lines, one LabelledAccount per line.</summary>
 public static class Dataset
 {
     public static readonly JsonSerializerOptions JsonOptions =

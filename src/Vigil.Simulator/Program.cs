@@ -24,7 +24,11 @@ var http = host.Services.GetRequiredService<IHttpClientFactory>().CreateClient("
 var log = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Simulator");
 var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
-Scenario[] scenarios = [new MargaretAto(), new MrPatelHouseMove()];
+// [--scenario scenarios/my-story.json]: one file, resolved from the current directory; otherwise every shipped scenario.
+var file = builder.Configuration["scenario"];
+var scenarios = file is null
+    ? Scenario.LoadAll(Path.Combine(AppContext.BaseDirectory, "scenarios"))
+    : [Scenario.Load(file)];
 
 foreach (var scenario in scenarios)
 {

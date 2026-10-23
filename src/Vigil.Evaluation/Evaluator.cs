@@ -67,7 +67,6 @@ public static class Evaluator
     private static RiskBand PeakBand(IReadOnlyList<Alert> alerts) =>
         alerts.Select(a => a.Band).DefaultIfEmpty(RiskBand.Low).Max();
 
-    /// <summary>The earliest moment any Alert's Score reached High, or null if none did.</summary>
     private static DateTimeOffset? FlaggedAt(IReadOnlyList<Alert> alerts, RuleSet ruleSet) =>
         alerts.Select(a => CrossedHighAt(a, ruleSet)).Min();
 

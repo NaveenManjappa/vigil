@@ -8,7 +8,6 @@ namespace Vigil.Simulator.Personas;
 /// </summary>
 public static class DatasetGenerator
 {
-    /// <summary>Start of the simulated clock; the Dataset spans the 90 days after it.</summary>
     public static readonly DateTimeOffset ClockStart = new(2026, 6, 23, 0, 0, 0, TimeSpan.Zero);
 
     public static readonly TimeSpan ClockSpan = TimeSpan.FromDays(90);
@@ -29,7 +28,6 @@ public static class DatasetGenerator
         var name = $"dataset-{seed}-{holders}";
 
         var slots = FraudSlots(fraud).Concat(GenuineSlots(holders - fraud, rng)).ToArray();
-        // Spread fraud through the Dataset rather than leaving it at the end.
         rng.Shuffle(slots);
 
         return slots
@@ -37,7 +35,6 @@ public static class DatasetGenerator
             .ToList();
     }
 
-    /// <summary>About a quarter of fraud is rings; the rest is shared evenly between ATO, registration and slow-burn.</summary>
     private static IEnumerable<(Persona Persona, int Ring)> FraudSlots(int fraud)
     {
         var rings = Math.Max(1, fraud / 4 / RingSize);
@@ -50,7 +47,7 @@ public static class DatasetGenerator
             yield return (solo[i % solo.Length], 0);
     }
 
-    /// <summary>One of each genuine Persona, then mostly quiet holders.</summary>
+    // One of each first, so every genuine Persona appears even in a small Dataset.
     private static IEnumerable<(Persona Persona, int Ring)> GenuineSlots(int genuine, Random rng)
     {
         Persona[] each = [Persona.QuietHolder, Persona.HouseMover, Persona.NewPhone, Persona.ActiveTrader];

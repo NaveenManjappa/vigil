@@ -36,15 +36,15 @@ flowchart LR
 | `Vigil.Detection` | The rules engine. One pure entry point, `Detector.Detect(timeline, ruleSet, stored)`: no database, no clock. Inside are the sequence matcher, the First Sighting check (R0) and Risk Episode assembly. |
 | `Vigil.Infrastructure` | EF Core stores: append-only events, Alerts with their Rule Hits, and Cases. |
 | `Vigil.Api` | Ingests batches, runs detection inside the ingest transaction, and serves `/alerts`, `/cases`, `/rules` and Account timelines. |
-| `Vigil.Simulator` | Posts the Margaret and Mr Patel Scenarios to the API, and (`generate`) writes a seeded, labelled Dataset to a file. Labels never go to the API. |
-| `Vigil.Evaluation` | Loads a Dataset, runs `Detector.Detect` per Account in memory, and writes a markdown report. No API, no database, no LLM. |
+| `Vigil.Simulator` | Posts the Scenario files in `scenarios/` (Margaret and Mr Patel) to the API, and (`generate`) writes a seeded, labelled Dataset to a file. Labels never go to the API. |
+| `Vigil.Evaluation` | Loads a Dataset, runs `Detector.Detect` per Account in memory, and writes a markdown report. Its `scenario` command dry-runs one Scenario step by step against any rules file. No API, no database, no LLM. |
 | `Vigil.AppHost` | Starts PostgreSQL, Neo4j, the API and the simulator, and hosts the tracing dashboard. |
 
 ## Data flow
 
 **Live path.** `POST /events` takes a batch. In one transaction, the API locks each Account in the batch (a Postgres advisory lock, taken in sorted order so batches cannot deadlock), appends the events idempotently on `EventId`, then for each Account loads its whole timeline and its stored Alerts and calls `Detector.Detect`. The detector only ever extends stored Alerts (ADR-0013), so the alert store appends the new Rule Hits, updates Score and Risk Band, and opens a Case the first time an Alert reaches High. A failure rolls back events and Alerts together.
 
-**Offline path.** `Vigil.Simulator generate` writes a Dataset of labelled Accounts as JSON lines. `Vigil.Evaluation` reads it, calls the same `Detector.Detect` with no stored Alerts, and compares each Account's Alerts with its Label. Because detection works in event time, never wall-clock time, replaying 90 simulated days in memory gives the same Alerts as live ingestion would.
+**Offline path.** `Vigil.Simulator generate` writes a Dataset of labelled Accounts as JSON lines. `Vigil.Evaluation` reads it, calls the same `Detector.Detect` with no stored Alerts, and compares each Account's Alerts with its Label. Because detection works in event time, never wall-clock time, replaying 90 simulated days in memory gives the same Alerts as live ingestion would. `Vigil.Evaluation scenario <file>` uses the same path for one Scenario: after each scripted step it runs `Detector.Detect` on everything that had happened by then, showing the Score and Risk Band an analyst would have seen at that moment.
 
 Both paths read the rules from the same versioned file (ADR-0002), and every Alert and report records its Rules Version.
 

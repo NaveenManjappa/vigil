@@ -65,7 +65,7 @@ public sealed record RuleSet(string Version, int RiskPeriodDays, BandThresholds 
             if (rule.Kind == RuleKind.Sequence && rule.Steps.Count != 2)
                 throw new InvalidDataException($"Rule {rule.Id}: a sequence rule needs exactly two steps.");
 
-            // Steps and Window are optional for first-sighting rules, so the parser no longer insists on them.
+            // Only sequence rules are checked: a first-sighting rule compares against history, so it has no steps or Window.
             if (rule.Kind == RuleKind.Sequence && rule.WindowMinutes <= 0)
                 throw new InvalidDataException($"Rule {rule.Id}: a sequence rule needs a positive windowMinutes.");
         }
