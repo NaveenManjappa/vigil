@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Vigil.Domain.Events;
+using Vigil.Domain.Fraud;
 
 namespace Vigil.Simulator.Scenarios;
 
@@ -26,12 +27,14 @@ public sealed partial class Scenario
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
     };
 
-    private Scenario(string name, string description, IReadOnlyList<PortalEvent> baseline, IReadOnlyList<ScenarioStep> steps)
+    private Scenario(
+        string name, string description, IReadOnlyList<PortalEvent> baseline, IReadOnlyList<ScenarioStep> steps, ConfirmedFraud? confirmedFraud)
     {
         Name = name;
         Description = description;
         Baseline = baseline;
         Steps = steps;
+        ConfirmedFraud = confirmedFraud;
     }
 
     public string Name { get; }
@@ -39,13 +42,20 @@ public sealed partial class Scenario
     public IReadOnlyList<PortalEvent> Baseline { get; }
     public IReadOnlyList<ScenarioStep> Steps { get; }
 
+    /// <summary>Set when the file gives a <c>confirmedFraud</c> decision date; the simulator seeds it after posting the events.</summary>
+    public ConfirmedFraud? ConfirmedFraud { get; }
+
     public IReadOnlyList<PortalEvent> Events() => [.. Baseline, .. Steps.Select(s => s.Event)];
 
     public static Scenario Load(string path) => Parse(File.ReadAllText(path), path);
 
-    /// <summary>Ordered by file name, so the simulator posts them in the same order on every machine.</summary>
+    /// <summary>
+    /// Ordered by first event time, so history another Scenario links to is in the graph before it is posted, such as
+    /// D-77's earlier Accounts before Margaret. Ties keep file-name order, so every machine posts the same sequence.
+    /// </summary>
     public static IReadOnlyList<Scenario> LoadAll(string folder) =>
-        Directory.GetFiles(folder, "*.json").Order(StringComparer.Ordinal).Select(Load).ToList();
+        Directory.GetFiles(folder, "*.json").Order(StringComparer.Ordinal).Select(Load)
+            .OrderBy(s => s.Events().Min(e => e.OccurredAt)).ToList();
 
     /// <param name="source">Named in every error, so a typo in a hand-written file is found at once.</param>
     public static Scenario Parse(string json, string source)
@@ -59,6 +69,9 @@ public sealed partial class Scenario
         {
             throw new InvalidDataException($"{source}: {e.Message}", e);
         }
+
+        // A journey with no steps has nothing to detect, and no first event to order it by.
+        if (file.Steps.Count == 0) throw new InvalidDataException($"{source}: no steps.");
 
         var start = file.Start ?? DefaultStart;
         var holderId = file.HolderId ?? $"HOLDER-{file.AccountId}";
@@ -90,7 +103,10 @@ public sealed partial class Scenario
                 actor.Device, actor.Ip, actor.Country, actor.Channel, step.Attributes ?? []));
         }).ToList();
 
-        return new Scenario(file.Name, file.Description, baseline, steps);
+        var confirmedFraud = file.ConfirmedFraud is { } decidedAt
+            ? new ConfirmedFraud(file.AccountId, decidedAt, ConfirmedFraudSource.Seed)
+            : null;
+        return new Scenario(file.Name, file.Description, baseline, steps, confirmedFraud);
     }
 
     private static TimeSpan? Offset(string text)
@@ -112,7 +128,8 @@ public sealed partial class Scenario
         string? HolderId = null,
         DateTimeOffset? Start = null,
         BaselineFile? Baseline = null,
-        Dictionary<string, Actor>? Actors = null);
+        Dictionary<string, Actor>? Actors = null,
+        DateTimeOffset? ConfirmedFraud = null);
 
     private sealed record BaselineFile(string Device, string Ip, string Country, int Weeks = 13);
 

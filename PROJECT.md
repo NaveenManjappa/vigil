@@ -81,23 +81,26 @@ Margaret holds 2,000 shares (~£18,000) and logs in a few times a year from a la
 | Time | Event | Rule fired | Score | Band |
 |---|---|---|---|---|
 | Mon 09:00 | `PasswordReset` from new device `D-77`, IP in Romania | R0 new device + new country (+10) | 10 | Low |
-| Mon 09:04 | `MfaEnrolled` (new phone) | R1 reset → MFA within 1h (+30) | 40 | Medium |
-| Mon 09:10 | `EmailChanged` | R2 contact change within 24h of reset (+20) | 60 | **High → case opened** |
-| Mon 09:10 | Graph enrichment: `D-77` used on 3 other accounts, one confirmed fraud | G2 device linked to known fraud (+25) | **85** | High |
+| Mon 09:00 | Graph: `D-77` already used on 3 other Accounts, one Confirmed Fraud | G2 device linked to known fraud (+25), G3 ring indicator (+20) | 55 | Medium |
+| Mon 09:04 | `MfaEnrolled` (new phone) | R1 reset → MFA within 1h (+30) | 85 | **High → case opened** |
+| Mon 09:10 | `EmailChanged` | R2 contact change within 24h of reset (+20) | **105** | **Critical** |
 | Mon 09:11 | MAF workflow: Investigator → Reviewer → **pause for analyst** | — | — | — |
 | Mon 09:30 | Analyst approves: block bank changes 7 days, contact holder by post | — | — | — |
 | Tue 14:00 | Fraudster attempts `BankDetailsChanged` → **blocked** | (R3 would have fired) | — | — |
 
 **Detected before the bank-detail change** — the explicit MVP goal.
 
+Until Stage 3 can block it, the simulator still posts Tuesday's `BankDetailsChanged`, so the live Alert goes on to add R3 (+30) and ends at 135.
+
 Explainable alert:
 
 ```
-Alert A-501  ACC-MARGARET  Score 85  HIGH   rules v1.3
+Alert A-501  ACC-MARGARET  Score 105  CRITICAL   rules v2
  ├─ R0 +10  E-1001 PasswordReset            (new device D-77, new country RO)
+ ├─ G2 +25  D-77 ─USED_BY→ ACC-PRIYA        (confirmed fraud, 2026-09-14)
+ ├─ G3 +20  D-77 shared by 4 Accounts       (ACC-DEREK, ACC-PRIYA, ACC-LENA; Ring threshold 3)
  ├─ R1 +30  E-1001 → E-1002                 (reset → MFA enrol, 4 min; window 1h)
- ├─ R2 +20  E-1001 → E-1003                 (reset → email change, 10 min; window 24h)
- └─ G2 +25  D-77 ─USED_BY→ ACC-PRIYA        (confirmed fraud, 2026-09-14)
+ └─ R2 +20  E-1001 → E-1003                 (reset → email change, 10 min; window 24h)
 ```
 
 Agent case summary (cites evidence IDs; PII masked):
@@ -571,6 +574,8 @@ Each stage ends with a **"Done when"** checklist and a short **"Explain it"** li
 - Graph rules G1–G3 feeding the score.
 - Integration tests with Testcontainers Neo4j.
 - Seed a few confirmed-fraud cases so proximity has something to find.
+
+> **Stage 2 decisions (grill session, 2026-10-23):** Neo4j holds a disposable Projection of Postgres, MERGE'd inside the ingest request before the Postgres commit, so a Neo4j failure fails the request and the retry converges both stores; a `rebuild-graph` command re-projects everything from Postgres. Device, BankAccount, Email and Phone are Linking Identifiers; IP addresses and postal Addresses are projected but never link. Relationships carry only `firstSeen` and the EventId that set it, not the `from`/`to` periods drawn in Section 8.1. Graph Rules G1 Shared bank account (+30), G2 Known-fraud proximity (+25) and G3 Ring indicator (+20) are one-hop Cypher queries that read the graph as it is now and return candidate Rule Hits to the still-pure Detector, which places them in Risk Episodes like any other. G2 is one hop, not the two in Section 8.2, and G3 counts the Accounts on one shared identifier rather than a connected group. After each batch, ingestion re-checks the Neighbours, so the first member of a Ring is lifted by the third. Graph Rules live in `rules.v2.json`, which the API now loads; v1 is unchanged. A minimal Confirmed Fraud record (Source = Seed, from Scenario files) gives G2 something to find. The generated Dataset has none, so G2 is demonstrated by Scenarios only. Evaluation replays the Dataset into a throwaway Neo4j in time order and reports v1 (graph off) against v2 (graph on). The neighbourhood summary is deferred to Stage 3's GraphRAG tools. See GLOSSARY.md, ADR-0014 and ADR-0015.
 
 **Done when**
 - [ ] Neo4j Browser shows Margaret's account linked via `D-77` to the ring accounts.

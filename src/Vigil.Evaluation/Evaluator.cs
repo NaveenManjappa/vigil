@@ -17,6 +17,7 @@ public sealed record RulePrecision(string RuleId, string Name, Rate Precision);
 public sealed record PersonaOutcome(Persona Persona, bool IsFraud, int Accounts, int Flagged, IReadOnlyDictionary<RiskBand, int> PeakBands);
 
 public sealed record EvaluationResult(
+    string RulesVersion,
     Rate DetectionRate,
     Rate FalsePositiveRate,
     Rate EarlyDetectionRate,
@@ -29,10 +30,14 @@ public sealed record EvaluationResult(
 /// </summary>
 public static class Evaluator
 {
-    public static EvaluationResult Evaluate(IEnumerable<LabelledAccount> dataset, RuleSet ruleSet)
+    /// <param name="graphHits">Each Account's candidate graph Rule Hits from <see cref="GraphReplay"/>; none when the graph is off.</param>
+    public static EvaluationResult Evaluate(
+        IEnumerable<LabelledAccount> dataset, RuleSet ruleSet, IReadOnlyDictionary<string, IReadOnlyList<RuleHit>>? graphHits = null)
     {
         // Evaluation passes no stored Alerts: each Account is replayed from its whole timeline at once.
-        var scored = dataset.Select(a => (Account: a, Alerts: Detector.Detect(a.Events, ruleSet))).ToList();
+        var scored = dataset
+            .Select(a => (Account: a, Alerts: Detector.Detect(a.Events, ruleSet, graphHits: graphHits?.GetValueOrDefault(a.AccountId))))
+            .ToList();
         var fraud = scored.Where(s => s.Account.Label.IsFraud).ToList();
         var genuine = scored.Where(s => !s.Account.Label.IsFraud).ToList();
         var ato = fraud.Where(s => s.Account.Label.FraudKind == FraudKind.Ato).ToList();
@@ -57,6 +62,7 @@ public static class Evaluator
             .ToList();
 
         return new EvaluationResult(
+            ruleSet.Version,
             new Rate(fraud.Count(s => FlaggedAt(s.Alerts, ruleSet) is not null), fraud.Count),
             new Rate(genuine.Count(s => FlaggedAt(s.Alerts, ruleSet) is not null), genuine.Count),
             new Rate(ato.Count(s => FlaggedAt(s.Alerts, ruleSet) < FirstBankChange(s.Account)), ato.Count),

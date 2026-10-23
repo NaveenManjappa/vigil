@@ -11,7 +11,8 @@ public sealed record ReplayRow(ScenarioStep Step, IReadOnlyList<RuleHit> NewHits
 
 /// <summary>
 /// A dry run of one Scenario against any rule set, in memory, so "what would this rule change do to this
-/// journey?" is answered in seconds, with no API, database or restart. Rows show what Vigil would have
+/// journey?" is answered in seconds, with no API, database or restart. Graph Rules are skipped, since they
+/// read links to other Accounts that only the graph holds. Rows show what Vigil would have
 /// concluded as each step arrived, which is how an analyst would have seen it live.
 /// </summary>
 public static class ScenarioReplay
@@ -62,6 +63,15 @@ public static class ScenarioReplay
         md.AppendLine(flagged is null
             ? $"Never reached High; peak {peak}."
             : $"First reached High at step {flagged.Step.Number}, {flagged.Step.Event.Type} (+{flagged.Step.After}); peak {peak}.");
+
+        // Said outright, so a dry-run Score below the live one is not mistaken for a bug.
+        var graphRules = ruleSet.Rules.Where(r => r.Kind == RuleKind.Graph).Select(r => r.Id).ToList();
+        if (graphRules.Count > 0)
+        {
+            md.AppendLine();
+            md.AppendLine($"Graph Rules {string.Join(", ", graphRules)} skipped: they need the graph, which a dry run does not have, " +
+                "so the live Score can be higher.");
+        }
 
         return md.ToString();
     }

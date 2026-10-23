@@ -1,6 +1,6 @@
 {
   "name": "margaret-ato",
-  "description": "PROJECT.md Section 3.1: after months of logins from her laptop in Reading, a fraudster with Margaret's email password takes over her account from a new device in Romania, then tries to redirect payouts the next day.",
+  "description": "PROJECT.md Section 3.1: after months of logins from her laptop in Reading, a fraudster with Margaret's email password takes over her account from a new device in Romania, then tries to redirect payouts the next day. The device, D-77, was already used on three other Accounts (derek-reset, priya-ato, lena-reset), one of them Confirmed Fraud.",
   "accountId": "ACC-MARGARET",
   "holderId": "HOLDER-MARGARET",
   "baseline": { "device": "D-MARGARET-LAPTOP", "ip": "203.0.113.51", "country": "GB" },

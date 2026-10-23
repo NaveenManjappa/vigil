@@ -9,6 +9,12 @@
     <ProjectReference Include="..\Vigil.Detection\Vigil.Detection.csproj" />
     <!-- Only to generate the seeded Dataset when its file is missing, so evaluation is one command. -->
     <ProjectReference Include="..\Vigil.Simulator\Vigil.Simulator.csproj" />
+    <ProjectReference Include="..\Vigil.Graph\Vigil.Graph.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Graph-on evaluation replays into its own container, so the demo graph is never touched. -->
+    <PackageReference Include="Testcontainers.Neo4j" />
   </ItemGroup>
 
 </Project>

@@ -8,14 +8,17 @@ public enum RuleKind
 {
     Sequence,
     FirstSighting,
+    Graph,
 }
 
 /// <summary>
 /// One detection pattern from the rules file. A sequence rule has two steps, A then B,
-/// and each step lists the event types that count as that step. A first-sighting rule has neither steps nor a Window.
+/// and each step lists the event types that count as that step. A first-sighting rule has neither steps nor a Window,
+/// and neither has a graph rule, which is a query over links between Accounts that Vigil.Graph runs by the rule's Id.
 /// </summary>
 /// <param name="Explanation">
-/// Template; a sequence rule fills in {elapsed} and {window}, a first-sighting rule fills in {sighting}.
+/// Template; a sequence rule fills in {elapsed} and {window}, a first-sighting rule fills in {sighting},
+/// G1 fills in {bankAccount} and {account}, G2 fills in {identifier}, {value} and {account}, and G3 fills in {identifier}, {value}, {accounts} and {threshold}.
 /// </param>
 public sealed record Rule(
     string Id,
@@ -27,6 +30,9 @@ public sealed record Rule(
     public IReadOnlyList<IReadOnlyList<EventType>> Steps { get; init; } = [];
 
     public int WindowMinutes { get; init; }
+
+    /// <summary>G3 only: how many Accounts must share one Linking Identifier before it counts as a Ring.</summary>
+    public int AccountThreshold { get; init; }
 
     [JsonIgnore]
     public TimeSpan Window => TimeSpan.FromMinutes(WindowMinutes);
@@ -68,6 +74,10 @@ public sealed record RuleSet(string Version, int RiskPeriodDays, BandThresholds 
             // Only sequence rules are checked: a first-sighting rule compares against history, so it has no steps or Window.
             if (rule.Kind == RuleKind.Sequence && rule.WindowMinutes <= 0)
                 throw new InvalidDataException($"Rule {rule.Id}: a sequence rule needs a positive windowMinutes.");
+
+            // Steps or a Window on a graph rule would look configurable but be silently ignored.
+            if (rule.Kind == RuleKind.Graph && (rule.Steps.Count > 0 || rule.WindowMinutes != 0))
+                throw new InvalidDataException($"Rule {rule.Id}: a graph rule has no steps or windowMinutes.");
         }
 
         return rules;

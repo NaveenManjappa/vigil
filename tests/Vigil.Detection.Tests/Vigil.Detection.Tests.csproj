@@ -15,6 +15,7 @@
   <ItemGroup>
     <!-- Tests run against the shipped rules file, so a config change that breaks detection fails here. -->
     <None Include="..\..\config\rules.v1.json" Link="config\rules.v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\config\rules.v2.json" Link="config\rules.v2.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

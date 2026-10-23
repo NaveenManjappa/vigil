@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vigil.Graph\Vigil.Graph.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Graph Rules take their points and explanations from the shipped rules files. -->
+    <None Include="..\..\config\rules.v1.json" Link="config\rules.v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\config\rules.v2.json" Link="config\rules.v2.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Testcontainers.Neo4j" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

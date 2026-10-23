@@ -1,0 +1,47 @@
+using Vigil.Domain.Events;
+
+namespace Vigil.Graph;
+
+/// <summary>
+/// One kind of identifier the Projection links an Account to: the node label, the relationship type and where
+/// the value comes from on a Portal Event. Each kind is projected by one MERGE. Not every kind is a Linking
+/// Identifier: IP addresses and Addresses are projected for exploration only.
+/// </summary>
+internal sealed record IdentifierKind(string Label, string Relationship, bool IsLinking, Func<PortalEvent, string?> ValueOf)
+{
+    public static readonly IReadOnlyList<IdentifierKind> All =
+    [
+        new("Device", "USED_DEVICE", IsLinking: true, e => e.DeviceId),
+        new("IpAddress", "SEEN_FROM", IsLinking: false, e => e.IpAddress),
+        new("Email", "HAS_EMAIL", IsLinking: true, e => e.Attributes.GetValueOrDefault("NewEmail")),
+        new("Phone", "HAS_PHONE", IsLinking: true, e => e.Attributes.GetValueOrDefault("NewPhone")),
+        new("BankAccount", "PAYS_TO", IsLinking: true, e => e.Attributes.GetValueOrDefault("NewBankAccountHash")),
+        new("Address", "LIVES_AT", IsLinking: false, e => e.Attributes.GetValueOrDefault("NewPostcode")),
+    ];
+
+    public static IEnumerable<IdentifierKind> Linking => All.Where(kind => kind.IsLinking);
+
+    // Blanks are dropped for the same reason the projection skips them: they would link strangers.
+    public IEnumerable<string> ValuesIn(IEnumerable<PortalEvent> batch) =>
+        batch.Select(ValueOf).Where(v => !string.IsNullOrWhiteSpace(v)).Distinct().Select(v => v!);
+
+    // Labels and relationship types cannot be Cypher parameters, so they are written in; they only ever come from the list above.
+    public string Cypher => $$"""
+        UNWIND $rows AS row
+        MERGE (a:Account {accountId: row.accountId})
+        MERGE (i:{{Label}} {value: row.value})
+        MERGE (a)-[r:{{Relationship}}]->(i)
+        """ + KeepEarliestLink;
+
+    // Events can arrive late (detection orders by OccurredAt, not arrival), so a later projection may carry an earlier time.
+    // firstEventId is the event that made the link, which Graph Rules cite as evidence. It is set before firstSeen
+    // because SET applies its items in order, and the comparison must see the old firstSeen. On a tie the lower
+    // EventId wins rather than the first to arrive, so a rebuild, which replays in a different order, cites the same event.
+    internal const string KeepEarliestLink = """
+
+          ON CREATE SET r.firstSeen = row.at, r.firstEventId = row.eventId
+          ON MATCH SET r.firstEventId = CASE WHEN row.at < r.firstSeen OR (row.at = r.firstSeen AND row.eventId < r.firstEventId)
+                                             THEN row.eventId ELSE r.firstEventId END,
+                       r.firstSeen = CASE WHEN row.at < r.firstSeen THEN row.at ELSE r.firstSeen END
+        """;
+}

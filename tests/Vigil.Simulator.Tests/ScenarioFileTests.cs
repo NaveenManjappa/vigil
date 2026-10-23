@@ -1,4 +1,5 @@
 using Vigil.Domain.Events;
+using Vigil.Domain.Fraud;
 using Vigil.Simulator.Scenarios;
 
 namespace Vigil.Simulator.Tests;
@@ -9,9 +10,11 @@ public sealed class ScenarioFileTests
     private static readonly DateTimeOffset Monday = new(2026, 9, 21, 9, 0, 0, TimeSpan.Zero);
 
     // Steps are added to this so each error test changes only the part it is about.
-    private static string Json(string steps, string baseline = """{ "device": "D-1", "ip": "203.0.113.1", "country": "GB" }""") => $$"""
+    private static string Json(
+        string steps, string baseline = """{ "device": "D-1", "ip": "203.0.113.1", "country": "GB" }""", string extra = "", string name = "test") => $$"""
         {
-          "name": "test",
+          {{extra}}
+          "name": "{{name}}",
           "description": "",
           "accountId": "ACC-TEST",
           "baseline": {{baseline}},
@@ -55,9 +58,24 @@ public sealed class ScenarioFileTests
     }
 
     [Fact]
-    public void Every_file_in_the_folder_loads()
+    public void Every_file_in_the_folder_loads_in_first_event_order()
     {
-        Assert.Equal(["margaret-ato", "patel-house-move"], Scenario.LoadAll(Folder).Select(s => s.Name));
+        // The D-77 history starts before Margaret's first baseline login, so it is in the graph before her takeover.
+        // Margaret and Mr Patel start at the same moment, so the name settles their order.
+        Assert.Equal(
+            ["derek-reset", "priya-ato", "lena-reset", "margaret-ato", "patel-house-move"],
+            Scenario.LoadAll(Folder).Select(s => s.Name));
+    }
+
+    [Fact]
+    public void Scenarios_are_ordered_by_their_first_event_not_their_file_name()
+    {
+        const string step = """{ "after": "0m", "type": "PasswordReset" }""";
+        var folder = Directory.CreateTempSubdirectory().FullName;
+        File.WriteAllText(Path.Combine(folder, "a.json"), Json(step, extra: """ "start": "2026-09-21T09:00:00Z", """, name: "late"));
+        File.WriteAllText(Path.Combine(folder, "b.json"), Json(step, extra: """ "start": "2026-09-14T09:00:00Z", """, name: "early"));
+
+        Assert.Equal(["early", "late"], Scenario.LoadAll(folder).Select(s => s.Name));
     }
 
     [Fact]
@@ -102,8 +120,40 @@ public sealed class ScenarioFileTests
     }
 
     [Fact]
+    public void A_scenario_without_steps_is_rejected()
+    {
+        var error = Assert.Throws<InvalidDataException>(() => Scenario.Parse(Json(""), "test.json"));
+
+        Assert.Contains("no steps", error.Message);
+    }
+
+    [Fact]
     public void A_misspelt_field_is_rejected_rather_than_silently_ignored()
     {
         Assert.Throws<InvalidDataException>(() => Scenario.Parse(Json("""{ "afer": "1h", "type": "PasswordReset" }"""), "test.json"));
+    }
+
+    [Fact]
+    public void A_confirmedFraud_date_marks_the_Account_as_seeded_Confirmed_Fraud()
+    {
+        var scenario = Scenario.Parse(
+            Json("""{ "after": "0m", "type": "LoginSucceeded" }""", extra: """ "confirmedFraud": "2026-09-14T12:00:00Z", """), "test.json");
+
+        Assert.Equal(
+            new ConfirmedFraud("ACC-TEST", new DateTimeOffset(2026, 9, 14, 12, 0, 0, TimeSpan.Zero), ConfirmedFraudSource.Seed),
+            scenario.ConfirmedFraud);
+    }
+
+    [Fact]
+    public void A_scenario_without_confirmedFraud_is_not_Confirmed_Fraud()
+    {
+        Assert.Null(Scenario.Parse(Json("""{ "after": "0m", "type": "LoginSucceeded" }"""), "test.json").ConfirmedFraud);
+    }
+
+    [Fact]
+    public void A_misspelt_confirmedFraud_is_rejected()
+    {
+        Assert.Throws<InvalidDataException>(() => Scenario.Parse(
+            Json("""{ "after": "0m", "type": "LoginSucceeded" }""", extra: """ "confirmedFruad": "2026-09-14T12:00:00Z", """), "test.json"));
     }
 }

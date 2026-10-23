@@ -9,10 +9,11 @@
     <ProjectReference Include="..\Vigil.Domain\Vigil.Domain.csproj" />
     <ProjectReference Include="..\Vigil.Infrastructure\Vigil.Infrastructure.csproj" />
     <ProjectReference Include="..\Vigil.Detection\Vigil.Detection.csproj" />
+    <ProjectReference Include="..\Vigil.Graph\Vigil.Graph.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\config\rules.v1.json" Link="config\rules.v1.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\config\rules.v2.json" Link="config\rules.v2.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

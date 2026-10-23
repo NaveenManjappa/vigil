@@ -12,7 +12,7 @@ var neo4jPassword = builder.AddParameter(
     secret: true,
     persist: true);
 
-builder.AddContainer("neo4j", "neo4j", "5-community")
+var neo4j = builder.AddContainer("neo4j", "neo4j", "5-community")
     // Fixed host ports so Neo4j Browser (http://localhost:7474) finds bolt on its default 7687.
     .WithHttpEndpoint(port: 7474, targetPort: 7474, name: "http")
     .WithEndpoint(port: 7687, targetPort: 7687, name: "bolt", scheme: "tcp")
@@ -20,9 +20,27 @@ builder.AddContainer("neo4j", "neo4j", "5-community")
     .WithVolume("vigil-neo4j-data", "/data")
     .WithHttpHealthCheck("/", endpointName: "http");
 
-var api = builder.AddProject<Projects.Vigil_Api>("api")
+var bolt = neo4j.GetEndpoint("bolt");
+
+// The endpoint's scheme is tcp, so the driver's bolt:// address is built from host and port.
+var boltUri = ReferenceExpression.Create($"bolt://{bolt.Property(EndpointProperty.HostAndPort)}");
+
+// The API and the rebuild-graph command both need both stores, wired the same way.
+IResourceBuilder<ProjectResource> WithStores(IResourceBuilder<ProjectResource> project) => project
     .WithReference(db)
-    .WaitFor(db);
+    .WaitFor(db)
+    .WithEnvironment("Neo4j__Uri", boltUri)
+    .WithEnvironment("Neo4j__Password", neo4jPassword)
+    .WaitFor(neo4j);
+
+var api = WithStores(builder.AddProject<Projects.Vigil_Api>("api"));
+
+// Explicit start, because a rebuild must only run with ingestion stopped (ADR-0015). It waits for the API, which
+// migrates the database, and has no launch profile, so it binds no ports beside the API.
+WithStores(builder.AddProject<Projects.Vigil_Api>("rebuild-graph", launchProfileName: null))
+    .WithArgs("rebuild-graph")
+    .WaitFor(api)
+    .WithExplicitStart();
 
 // Explicit start: the simulator replays scripted scenarios once, so it runs when you click Start in the dashboard.
 builder.AddProject<Projects.Vigil_Simulator>("simulator")

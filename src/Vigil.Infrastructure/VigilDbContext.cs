@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Vigil.Infrastructure.Alerts;
 using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
+using Vigil.Infrastructure.Fraud;
 
 namespace Vigil.Infrastructure;
 
@@ -12,6 +13,7 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
     public DbSet<StoredEvent> Events => Set<StoredEvent>();
     public DbSet<StoredAlert> Alerts => Set<StoredAlert>();
     public DbSet<StoredCase> Cases => Set<StoredCase>();
+    public DbSet<StoredConfirmedFraud> ConfirmedFrauds => Set<StoredConfirmedFraud>();
 
     /// <summary>
     /// Serialises detection for one Account across concurrent requests, so two ingests cannot both
@@ -23,6 +25,12 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureAlerts(modelBuilder);
+
+        var frauds = modelBuilder.Entity<StoredConfirmedFraud>();
+        frauds.ToTable("confirmed_frauds");
+        frauds.HasKey(f => f.AccountId);
+        frauds.Property(f => f.AccountId).HasMaxLength(64);
+        frauds.Property(f => f.Source).HasConversion<string>().HasMaxLength(32);
 
         var events = modelBuilder.Entity<StoredEvent>();
         events.ToTable("events");

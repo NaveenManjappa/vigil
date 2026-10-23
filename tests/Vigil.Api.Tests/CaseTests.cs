@@ -22,7 +22,8 @@ public sealed class CaseTests(ApiFactory factory) : IClassFixture<ApiFactory>
         holderId = $"HOLDER-{accountId}",
         type,
         occurredAt = at,
-        deviceId = "D-77",
+        // Its own device, so G3 does not join every Account in the class into one Ring.
+        deviceId = $"D-{accountId}",
         ipAddress = "198.51.100.77",
         country = "RO",
         channel = "web",
