@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/Vigil.Agents/Vigil.Agents.csproj" />
     <Project Path="src/Vigil.Api/Vigil.Api.csproj" />
     <Project Path="src/Vigil.AppHost/Vigil.AppHost.csproj" />
     <Project Path="src/Vigil.Detection/Vigil.Detection.csproj" />
@@ -11,6 +12,7 @@
     <Project Path="src/Vigil.Simulator/Vigil.Simulator.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/Vigil.Agents.Tests/Vigil.Agents.Tests.csproj" />
     <Project Path="tests/Vigil.Api.Tests/Vigil.Api.Tests.csproj" />
     <Project Path="tests/Vigil.Detection.Tests/Vigil.Detection.Tests.csproj" />
     <Project Path="tests/Vigil.Evaluation.Tests/Vigil.Evaluation.Tests.csproj" />
