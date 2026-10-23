@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Vigil.Infrastructure.Alerts;
+using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
 
 namespace Vigil.Infrastructure;
@@ -8,9 +10,20 @@ namespace Vigil.Infrastructure;
 public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : DbContext(options)
 {
     public DbSet<StoredEvent> Events => Set<StoredEvent>();
+    public DbSet<StoredAlert> Alerts => Set<StoredAlert>();
+    public DbSet<StoredCase> Cases => Set<StoredCase>();
+
+    /// <summary>
+    /// Serialises detection for one Account across concurrent requests, so two ingests cannot both
+    /// see "no Alert yet" and open one each. Transaction-scoped, so commit or rollback always releases it.
+    /// </summary>
+    public Task LockAccountAsync(string accountId, CancellationToken ct = default) =>
+        Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({accountId}, 0))", ct);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        ConfigureAlerts(modelBuilder);
+
         var events = modelBuilder.Entity<StoredEvent>();
         events.ToTable("events");
         events.HasKey(e => e.EventId);
@@ -37,5 +50,33 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
                     (a, b) => a!.Count == b!.Count && !a.Except(b).Any(),
                     v => v.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key, kv.Value)),
                     v => new Dictionary<string, string>(v)));
+    }
+
+    private static void ConfigureAlerts(ModelBuilder modelBuilder)
+    {
+        var alerts = modelBuilder.Entity<StoredAlert>();
+        alerts.ToTable("alerts");
+        alerts.HasKey(a => a.AlertId);
+        alerts.HasIndex(a => a.AccountId);
+        alerts.Property(a => a.AccountId).HasMaxLength(64);
+        alerts.Property(a => a.Band).HasConversion<string>().HasMaxLength(16);
+        alerts.Property(a => a.RulesVersion).HasMaxLength(32);
+        alerts.HasMany(a => a.Hits).WithOne().HasForeignKey(h => h.AlertId);
+
+        var hits = modelBuilder.Entity<StoredRuleHit>();
+        hits.ToTable("rule_hits");
+        hits.HasKey(h => h.Id);
+        hits.Property(h => h.RuleId).HasMaxLength(16);
+
+        // Native uuid[] rather than a join table: evidence is always read whole with its hit, never queried alone.
+        hits.Property(h => h.EvidenceEventIds).HasColumnType("uuid[]");
+
+        var cases = modelBuilder.Entity<StoredCase>();
+        cases.ToTable("cases");
+        cases.HasKey(c => c.CaseId);
+        cases.Property(c => c.Status).HasConversion<string>().HasMaxLength(32);
+
+        // One-to-one with a unique AlertId, so the database itself refuses a second Case for an Alert.
+        alerts.HasOne(a => a.Case).WithOne(c => c.Alert).HasForeignKey<StoredCase>(c => c.AlertId);
     }
 }

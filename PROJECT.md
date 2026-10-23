@@ -268,7 +268,7 @@ Example rule definition:
 
 ### 7.3 Scoring and bands
 
-- **Score** = sum of points of distinct rule hits within the account's active risk period (default 7 days).
+- **Score** = sum of points of distinct rule hits within the account's active risk period (default 7 days). *Stage 1 refines this: an Alert is one Risk Episode, which stays open while each hit is within 7 days of the previous one, and its Score never decreases (ADR-0013).*
 - **Bands:** `0–29 Low` · `30–59 Medium` · `60–89 High` · `90+ Critical`.
 - **Routing:** High/Critical → open a case and start the investigation workflow. Cases are prioritised by band, then score, then holding value.
 - **Explainability:** every alert stores rule hits with evidence event IDs and the rules version that produced it.
@@ -513,7 +513,7 @@ Vigil/
 ├─ eval-reports/
 ├─ docs/
 │  ├─ architecture.md
-│  ├─ adr/                        ← ADR-001 … ADR-012
+│  ├─ adr/                        ← ADR-001 … ADR-013
 │  ├─ runbook.md
 │  ├─ industrialisation.md
 │  └─ interview-notes.md
@@ -553,6 +553,8 @@ Each stage ends with a **"Done when"** checklist and a short **"Explain it"** li
 - Case creation for High/Critical; case queue endpoint ordered by priority.
 - Full simulator personas (Section 10.1) with seeded generation and simulated clock.
 - Unit tests for all edge cases in 7.4.
+
+> **Stage 1 decisions (grill session, 2026-10-22):** detection is one pure entry point, `Detector.Detect(timeline, ruleSet)` (Stage 1.4 adds the Account's stored Alerts as a third argument, which it only extends; see ADR-0013), run synchronously inside the ingest transaction for every Account in the batch, under a per-Account transaction-scoped Postgres advisory lock. A sequence Rule is two steps (A → B), each with alternative event types; B is the event being evaluated and A is the latest earlier event matching step A; Windows are inclusive. Each Rule Hit stores evidence EventIds (native `uuid[]`), its trigger time and an explanation; stored hits are never rewritten. The holding-value tie-break in Section 7.3 is dropped for Stage 1, because there is no Account entity yet: Cases are ordered by band, then Score, then time opened. See GLOSSARY.md, ADR-0001 and ADR-0002.
 
 **Done when**
 - [ ] Margaret is flagged **High at the email change, before any bank change**; Mr Patel stays Low.
@@ -602,7 +604,7 @@ Each stage ends with a **"Done when"** checklist and a short **"Explain it"** li
 - Scenario Generator agent → schema-validated scenarios → replay.
 - Evaluation harness with all metrics in 10.3, including evidence grounding and LLM-as-judge on a sample.
 - Analyst decision capture → rule-tuning report.
-- Docs: `architecture.md`, ADR-001…012, `runbook.md`, `industrialisation.md`.
+- Docs: `architecture.md`, ADR-001…013, `runbook.md`, `industrialisation.md`.
 
 **Done when**
 - [ ] One command produces an evaluation report with all metrics, rules version and prompt version.

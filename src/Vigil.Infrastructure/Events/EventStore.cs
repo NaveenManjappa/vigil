@@ -44,7 +44,7 @@ public sealed class EventStore(VigilDbContext db, TimeProvider clock)
         return new AppendResult(fresh.Count, events.Count - fresh.Count);
     }
 
-    /// <summary>Events for one account in the order they happened at the source.</summary>
+    /// <summary>In OccurredAt order, never arrival order, because detection scores an event where it happened (PROJECT.md Section 7.4).</summary>
     public async Task<IReadOnlyList<PortalEvent>> GetTimelineAsync(string accountId, CancellationToken ct = default)
     {
         var stored = await db.Events

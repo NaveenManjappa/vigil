@@ -1,0 +1,11 @@
+{
+  "name": "patel-house-move",
+  "description": "PROJECT.md Section 3.2: a genuine holder moves house using his usual laptop and IP. No reset and no new device, so no Rule should fire.",
+  "accountId": "ACC-PATEL",
+  "holderId": "HOLDER-PATEL",
+  "baseline": { "device": "D-PATEL-LAPTOP", "ip": "203.0.113.24", "country": "GB" },
+  "steps": [
+    { "after": "0m", "type": "AddressChanged", "attributes": { "NewPostcode": "RG1 8AA" } },
+    { "after": "2d", "type": "PhoneChanged", "attributes": { "NewPhone": "+44 7700 900123" } }
+  ]
+}

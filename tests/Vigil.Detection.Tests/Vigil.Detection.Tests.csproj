@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Vigil.Detection\Vigil.Detection.csproj" />
+    <!-- For the demo Scenarios, so the story PROJECT.md Section 3 tells is pinned at the Detection seam. -->
+    <ProjectReference Include="..\..\src\Vigil.Simulator\Vigil.Simulator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Tests run against the shipped rules file, so a config change that breaks detection fails here. -->
+    <None Include="..\..\config\rules.v1.json" Link="config\rules.v1.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>
