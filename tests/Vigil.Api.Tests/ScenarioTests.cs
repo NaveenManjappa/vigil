@@ -3,6 +3,8 @@ extern alias simulator;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.DependencyInjection;
+using Neo4j.Driver;
 using simulator::Vigil.Simulator.Scenarios;
 using Vigil.Api.Alerts;
 using Vigil.Api.Cases;
@@ -62,6 +64,19 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
         var @case = Assert.Single(await CasesForAsync("ACC-MARGARET"));
         Assert.Equal(CaseStatus.Open, @case.Status);
         Assert.Equal(summary.Id, @case.AlertId);
+    }
+
+    [Fact]
+    public async Task Posting_Margaret_projects_her_Account_linked_to_the_fraudster_device()
+    {
+        await PostAsync(Load("margaret-ato"));
+
+        var driver = factory.Services.GetRequiredService<IDriver>();
+        var result = await driver.ExecutableQuery("""
+            MATCH (:Holder {holderId: 'HOLDER-MARGARET'})-[:OWNS]->(a:Account {accountId: 'ACC-MARGARET'})-[:USED_DEVICE]->(d:Device {value: 'D-77'})
+            RETURN count(*) AS links
+            """).ExecuteAsync(Ct);
+        Assert.Equal(1L, result.Result.Single()["links"].As<long>());
     }
 
     [Fact]

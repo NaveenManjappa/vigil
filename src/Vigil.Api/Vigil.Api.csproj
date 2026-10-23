@@ -9,6 +9,7 @@
     <ProjectReference Include="..\Vigil.Domain\Vigil.Domain.csproj" />
     <ProjectReference Include="..\Vigil.Infrastructure\Vigil.Infrastructure.csproj" />
     <ProjectReference Include="..\Vigil.Detection\Vigil.Detection.csproj" />
+    <ProjectReference Include="..\Vigil.Graph\Vigil.Graph.csproj" />
   </ItemGroup>
 
   <ItemGroup>

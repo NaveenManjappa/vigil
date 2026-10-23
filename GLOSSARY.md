@@ -83,3 +83,11 @@ _Avoid_: ticket, investigation, alert (the Alert is detection's verdict; the Cas
 **Rules Version**:
 The version string of the rules file in force when an Alert was scored, stored on the Alert so the reasoning behind any past Alert can be reproduced.
 _Avoid_: config version, ruleset id
+
+**Projection**:
+The copy of Portal Events in Neo4j as nodes and relationships: Holder OWNS Account, and Account linked to each identifier it used (USED_DEVICE Device, SEEN_FROM IpAddress, HAS_EMAIL Email, HAS_PHONE Phone, PAYS_TO BankAccount, LIVES_AT Address). It is written inside ingestion with idempotent MERGEs. Postgres stays the source of truth, so the Projection can be wiped and rebuilt from the event store (ADR-0015).
+_Avoid_: graph database (as the store of record), sync, mirror
+
+**Linking Identifier**:
+An identifier whose reuse across Accounts suggests one person or gang behind them: Device, BankAccount, Email and Phone. IP addresses and postal Addresses are projected for exploration but never link, because households, offices and mobile carriers share them innocently.
+_Avoid_: shared attribute, key, identifier (alone, when IP and Address are excluded)
