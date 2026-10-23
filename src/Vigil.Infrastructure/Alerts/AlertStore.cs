@@ -11,8 +11,9 @@ public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
     /// Hands the Account's stored Alerts to <paramref name="detect"/> and persists what it adds. Detection
     /// only ever extends stored Alerts (ADR-0013), so this appends hits and Alerts and never rewrites a stored hit.
     /// An Alert that reaches High gets a Case the first time only; reaching Critical later just raises its Case's priority.
+    /// Returns the Cases this call opened, which are the only ones that need an Investigation.
     /// </summary>
-    public async Task SaveAsync(
+    public async Task<IReadOnlyList<Guid>> SaveAsync(
         string accountId, Func<IReadOnlyList<Alert>, IReadOnlyList<Alert>> detect, CancellationToken ct = default)
     {
         var stored = await db.Alerts
@@ -24,6 +25,7 @@ public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
         var detected = detect(stored.Select(a => a.ToDomain()).ToList());
 
         var now = clock.GetUtcNow();
+        var opened = new List<StoredCase>();
         for (var i = 0; i < detected.Count; i++)
         {
             var alert = detected[i];
@@ -44,10 +46,14 @@ public sealed class AlertStore(VigilDbContext db, TimeProvider clock)
             target.UpdatedAt = now;
 
             if (target.Band >= RiskBand.High && target.Case is null)
+            {
                 target.Case = new StoredCase { Status = CaseStatus.Open, OpenedAt = now };
+                opened.Add(target.Case);
+            }
         }
 
         await db.SaveChangesAsync(ct);
+        return opened.Select(c => c.CaseId).ToList();
     }
 
     public async Task<IReadOnlyList<StoredAlert>> ListAsync(RiskBand? band, CancellationToken ct = default) =>

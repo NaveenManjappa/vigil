@@ -8,7 +8,6 @@ using Neo4j.Driver;
 using simulator::Vigil.Simulator.Scenarios;
 using Vigil.Api.Alerts;
 using Vigil.Api.Cases;
-using Vigil.Domain.Cases;
 using Vigil.Domain.Detection;
 using Vigil.Domain.Events;
 
@@ -83,8 +82,8 @@ public sealed class ScenarioTests(ApiFactory factory) : IClassFixture<ApiFactory
         Assert.True(email.OccurredAt < bank.OccurredAt);
         Assert.Equal((135, RiskBand.Critical, "v2"), (alert.Score, alert.Band, alert.RulesVersion));
 
+        // Its status is not asserted: the Investigation worker moves it on in the background.
         var @case = Assert.Single(await CasesForAsync("ACC-MARGARET"));
-        Assert.Equal(CaseStatus.Open, @case.Status);
         Assert.Equal(summary.Id, @case.AlertId);
     }
 

@@ -11,7 +11,8 @@ public sealed record CaseSummary(
     CaseStatus Status,
     RiskBand Band,
     int Score,
-    DateTimeOffset OpenedAt);
+    DateTimeOffset OpenedAt,
+    bool NotInvestigated);
 
 public static class CaseEndpoints
 {
@@ -19,7 +20,7 @@ public static class CaseEndpoints
     {
         app.MapGet("/cases", async (CaseStatus? status, CaseStore store, CancellationToken ct) =>
                 TypedResults.Ok((await store.QueueAsync(status, ct))
-                    .Select(c => new CaseSummary(c.CaseId, c.AlertId, c.Alert.AccountId, c.Status, c.Alert.Band, c.Alert.Score, c.OpenedAt))))
+                    .Select(c => new CaseSummary(c.CaseId, c.AlertId, c.Alert.AccountId, c.Status, c.Alert.Band, c.Alert.Score, c.OpenedAt, c.NotInvestigated))))
             .WithSummary("The Case queue in priority order (Risk Band, then Score, then time opened), optionally filtered by status.");
 
         return app;

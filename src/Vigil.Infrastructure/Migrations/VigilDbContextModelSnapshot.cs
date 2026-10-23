@@ -104,8 +104,30 @@ namespace Vigil.Infrastructure.Migrations
                     b.Property<Guid>("AlertId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Finding")
+                        .HasColumnType("jsonb");
+
+                    b.Property<bool>("InvestigationFailed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("InvestigationStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("NotInvestigated")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTimeOffset>("OpenedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PseudonymMap")
+                        .HasColumnType("jsonb");
+
+                    b.Property<bool>("ReviewFlagged")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -116,6 +138,10 @@ namespace Vigil.Infrastructure.Migrations
 
                     b.HasIndex("AlertId")
                         .IsUnique();
+
+                    b.HasIndex("InvestigationStartedAt");
+
+                    b.HasIndex("Status");
 
                     b.ToTable("cases", (string)null);
                 });
