@@ -15,7 +15,10 @@ public sealed class StoredCase
     public CaseStatus Status { get; set; }
     public DateTimeOffset OpenedAt { get; init; }
 
-    /// <summary>When its one Investigation began; the daily limit counts these, so the count survives a restart.</summary>
+    /// <summary>
+    /// When its one Investigation last began, restamped if an unfinished one is run again; the daily limit counts
+    /// these, so the count survives a restart.
+    /// </summary>
     public DateTimeOffset? InvestigationStartedAt { get; set; }
 
     /// <summary>Left Open because Investigations were switched off or the day's limit was spent.</summary>

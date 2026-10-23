@@ -38,7 +38,7 @@ public sealed class InvestigatorTests
         Assert.Equal(Confidence.High, finding.Confidence);
         Assert.Equal("A new device took over the Account.", finding.Summary);
         Assert.Equal(Recommendation.BlockBankChanges, finding.Recommendation);
-        Assert.Equal(["E-1", "G-2"], finding.Evidence);
+        Assert.Equal(["E-1", "G-2"], finding.EvidenceRefs);
         // Tokens are summed over the tool loop: both round trips are billed.
         Assert.Equal(300, result.InputTokens);
         Assert.Equal(30, result.OutputTokens);

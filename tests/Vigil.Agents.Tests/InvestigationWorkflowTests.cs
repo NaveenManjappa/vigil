@@ -35,7 +35,7 @@ public sealed class InvestigationWorkflowTests
 
         Assert.Equal(CaseId, request.CaseId);
         Assert.False(request.InvestigationFailed);
-        Assert.False(request.ReviewFlag);
+        Assert.False(request.ReviewFlagged);
         Assert.Equal("ACCOUNT-1 was reset from DEVICE-1 then enrolled MFA.", request.Finding!.Summary);
         Assert.Equal("ACC-MARGARET", request.PseudonymMap["ACCOUNT-1"]);
         Assert.Equal("D-77", request.PseudonymMap["DEVICE-1"]);
@@ -78,8 +78,38 @@ public sealed class InvestigationWorkflowTests
 
         var request = await Workflow(chat).InvestigateAsync(CaseId, MargaretCase.Alert, Ct);
 
-        Assert.True(request.ReviewFlag);
+        Assert.True(request.ReviewFlagged);
         Assert.NotNull(request.Finding);
+    }
+
+    // Each parses, because a missing property binds to null and the enum converter takes numbers, yet none could be shown.
+    [Theory]
+    [InlineData("""{"verdict":"LikelyAccountTakeover","confidence":"High","recommendation":"BlockBankChanges","evidence":["E-2"]}""")]
+    [InlineData("""{"verdict":"LikelyAccountTakeover","confidence":"High","summary":"ACCOUNT-1 was reset.","recommendation":"BlockBankChanges"}""")]
+    [InlineData("""{"verdict":7,"confidence":"High","summary":"ACCOUNT-1 was reset.","recommendation":"BlockBankChanges","evidence":["E-2"]}""")]
+    public async Task An_incomplete_Finding_after_the_retry_pauses_for_approval_as_InvestigationFailed_not_flagged(string incomplete)
+    {
+        var chat = new RecordingChatClient().Replies(incomplete).Replies(incomplete);
+
+        var request = await Workflow(chat).InvestigateAsync(CaseId, MargaretCase.Alert, Ct);
+
+        Assert.True(request.InvestigationFailed);
+        Assert.Null(request.Finding);
+        Assert.False(request.ReviewFlagged);
+        Assert.Equal(2, chat.Calls.Count);
+    }
+
+    [Fact]
+    public async Task An_incomplete_Finding_retried_into_a_complete_one_goes_on_to_review()
+    {
+        const string noSummary = """{"verdict":"LikelyAccountTakeover","confidence":"High","recommendation":"BlockBankChanges","evidence":["E-2"]}""";
+        var chat = new RecordingChatClient().Replies(noSummary).Replies(TakeoverFinding).Replies(Approve);
+
+        var request = await Workflow(chat).InvestigateAsync(CaseId, MargaretCase.Alert, Ct);
+
+        Assert.False(request.InvestigationFailed);
+        Assert.False(request.ReviewFlagged);
+        Assert.Equal(3, chat.Calls.Count);
     }
 
     [Fact]

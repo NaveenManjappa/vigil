@@ -54,7 +54,8 @@ public sealed class InvestigationWorker(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            // The Case stays Investigating, so the next startup tries it again; one bad Case must not stop the rest.
+            // The Case stays Investigating, so a later startup tries it again within that day's budget; one bad Case
+            // must not stop the rest.
             logger.LogError(ex, "Investigation of Case {CaseId} failed", caseId);
             span?.SetStatus(ActivityStatusCode.Error, ex.Message);
         }
@@ -68,22 +69,25 @@ public sealed class InvestigationWorker(
         var @case = await cases.FindAsync(caseId, ct);
         if (@case is null || @case.Status is not (CaseStatus.Open or CaseStatus.Investigating)) return;
 
-        // An Investigating Case was interrupted mid-run and has already counted against its day's limit.
-        if (@case.Status == CaseStatus.Open)
+        // An Investigating Case was interrupted mid-run, or failed in a way that may fail again, so a re-run is held to
+        // the budget like a first run: a Case that always fails must not spend LLM calls on every restart.
+        var now = clock.GetUtcNow();
+        if (!await WithinBudgetAsync(cases, now, ct))
         {
-            var now = clock.GetUtcNow();
-            if (!await WithinBudgetAsync(cases, now, ct))
+            // An Investigating one is left as it is, to be tried again on a later day's budget.
+            if (@case.Status == CaseStatus.Open)
             {
                 @case.NotInvestigated = true;
                 await cases.SaveAsync(ct);
-                logger.LogInformation("Case {CaseId} left Open and not investigated by the budget guard", caseId);
-                return;
             }
-
-            @case.Status = CaseStatus.Investigating;
-            @case.InvestigationStartedAt = now;
-            await cases.SaveAsync(ct);
+            logger.LogInformation("Case {CaseId} left {Status} and not investigated by the budget guard", caseId, @case.Status);
+            return;
         }
+
+        // Restamped on a re-run, so it counts against the day it runs in.
+        @case.Status = CaseStatus.Investigating;
+        @case.InvestigationStartedAt = now;
+        await cases.SaveAsync(ct);
 
         await scope.ServiceProvider.GetRequiredService<IInvestigationRunner>().RunAsync(caseId, ct);
     }

@@ -9,7 +9,11 @@ namespace Vigil.Agents;
 /// </summary>
 public sealed class MaskedEvidence
 {
-    // The Portal Event attributes that hold identifiers. Others, such as Amount, are kept because the agents reason on them.
+    // Safe by default: an attribute is shown as it is only if it is listed here as naming no one, because the agents
+    // reason on it. Any other value, including one from a field added to the portal later, is masked.
+    private static readonly HashSet<string> NonIdentifyingAttributes = ["Amount"];
+
+    // The attributes whose kind is known, so their Pseudonyms say what they are; any other gets a generic one.
     private static readonly Dictionary<string, IdentifierKind> IdentifierAttributes = new()
     {
         ["NewEmail"] = IdentifierKind.Email,
@@ -17,6 +21,10 @@ public sealed class MaskedEvidence
         ["NewBankAccountHash"] = IdentifierKind.BankAccount,
         ["NewPostcode"] = IdentifierKind.Address,
     };
+
+    // A registered value is swapped out of every line it appears in, so one this short would also be swapped out of
+    // timestamps and refs; it is withheld instead.
+    private const int MinMaskedLength = 4;
 
     // Kept so the Reviewer can be shown exactly the line the Investigator saw for each ref it cited.
     private readonly Dictionary<string, string> _lineByRef = new();
@@ -37,11 +45,7 @@ public sealed class MaskedEvidence
         Masker.Register(IdentifierKind.HolderId, e.HolderId);
         if (!string.IsNullOrWhiteSpace(e.DeviceId)) Masker.Register(IdentifierKind.DeviceId, e.DeviceId);
         if (!string.IsNullOrWhiteSpace(e.IpAddress)) Masker.Register(IdentifierKind.IpAddress, e.IpAddress);
-        foreach (var (key, value) in e.Attributes)
-            if (IdentifierAttributes.TryGetValue(key, out var kind) && !string.IsNullOrWhiteSpace(value))
-                Masker.Register(kind, value);
-
-        var attributes = string.Concat(e.Attributes.OrderBy(a => a.Key).Select(a => $" {a.Key}={a.Value}"));
+        var attributes = string.Concat(e.Attributes.OrderBy(a => a.Key).Select(a => $" {a.Key}={AttributeValue(a.Key, a.Value)}"));
         var eventRef = Refs.AddEvent(e.EventId);
         return Shown(eventRef, $"{eventRef} {e.OccurredAt.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} {e.Type} account {e.AccountId} " +
                     $"holder {e.HolderId} device {e.DeviceId ?? "none"} ip {e.IpAddress ?? "none"} country {e.Country ?? "unknown"} " +
@@ -68,6 +72,13 @@ public sealed class MaskedEvidence
 
         return Mask($"Usual countries: {List(baseline.UsualCountries)}. Usual devices: {List(baseline.UsualDevices)}. " +
                     $"Logins per week: {baseline.LoginsPerWeek:0.#}.");
+    }
+
+    private string AttributeValue(string key, string value)
+    {
+        if (NonIdentifyingAttributes.Contains(key) || string.IsNullOrWhiteSpace(value)) return value;
+        if (value.Length < MinMaskedLength) return "withheld";
+        return Masker.Register(IdentifierAttributes.GetValueOrDefault(key, IdentifierKind.Unclassified), value);
     }
 
     private string Shown(string evidenceRef, string line) => _lineByRef[evidenceRef] = Mask(line);

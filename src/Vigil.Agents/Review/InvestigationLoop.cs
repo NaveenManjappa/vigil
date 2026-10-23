@@ -11,13 +11,13 @@ public sealed record AgentUsage(string AgentId, string PromptVersion, long Input
 /// the agents failed.
 /// </summary>
 /// <param name="Finding">The last Finding written; null when the Investigation failed.</param>
-/// <param name="ReviewFlag">The Finding was still rejected after its one retry.</param>
+/// <param name="ReviewFlagged">The Finding was still rejected after its one retry.</param>
 /// <param name="RejectionReasons">Why the kept Finding was last rejected; empty when it was approved.</param>
 /// <param name="Usage">Every agent call that returned, in order, including those on a failed run, because they were billed.</param>
 /// <param name="Failure">Why the Investigation failed, for the logs; null when it did not.</param>
 public sealed record InvestigationOutcome(
     Finding? Finding,
-    bool ReviewFlag,
+    bool ReviewFlagged,
     IReadOnlyList<string> RejectionReasons,
     IReadOnlyList<AgentUsage> Usage,
     string? Failure)
@@ -28,7 +28,7 @@ public sealed record InvestigationOutcome(
 /// <summary>
 /// Investigate, Validate, Review, with one retry (ADR-0006). Validation failures and Reviewer rejections are treated
 /// alike: the Investigator gets the reasons and tries once more; a second rejection keeps the Finding with the
-/// Review Flag. An LLM failure ends the Investigation with no Finding.
+/// Review Flag, unless it is incomplete. An LLM failure or an incomplete last Finding ends the Investigation with no Finding.
 /// </summary>
 public sealed class InvestigationLoop(Investigator investigator, Reviewer reviewer)
 {
@@ -77,18 +77,20 @@ public sealed class InvestigationLoop(Investigator investigator, Reviewer review
             }
             usage.Add(new(Reviewer.AgentId, Reviewer.PromptVersion, reviewed.InputTokens, reviewed.OutputTokens, reviewed.Model));
             if (reviewed.Review.Approved)
-                return new(finding, ReviewFlag: false, [], usage, Failure: null);
+                return new(finding, ReviewFlagged: false, [], usage, Failure: null);
 
             // A rejection with no reasons would give the retry nothing to fix.
             reasons = reviewed.Review.Reasons.Count > 0 ? reviewed.Review.Reasons : ["The Reviewer rejected the Finding without a reason."];
         }
 
         // Non-null here: the last attempt either returned from a catch or wrote a Finding.
-        return new(finding!, ReviewFlag: true, reasons, usage, Failure: null);
+        if (!FindingValidation.IsComplete(finding!))
+            return new(null, ReviewFlagged: false, [], usage, "The last Finding was incomplete: " + string.Join(" ", reasons));
+        return new(finding!, ReviewFlagged: true, reasons, usage, Failure: null);
     }
 
     // Timeouts surface as OperationCanceledException with our token untouched, so they fail the Investigation like
     // any LLM error. Only a cancelled token, the host stopping, escapes: the Case is then re-queued on startup.
     private static InvestigationOutcome Failed(List<AgentUsage> usage, Exception e) =>
-        new(null, ReviewFlag: false, [], usage, $"{e.GetType().Name}: {e.Message}");
+        new(null, ReviewFlagged: false, [], usage, $"{e.GetType().Name}: {e.Message}");
 }

@@ -20,7 +20,7 @@ public interface IInvestigationSource
 
     Task<Neighbourhood> GetNeighbourhoodAsync(string accountId, CancellationToken ct);
 
-    /// <summary>The Holder's usual behaviour from events before <paramref name="before"/>, when the flagged activity began.</summary>
+    /// <summary>The Holder's usual behaviour from events before <paramref name="before"/>, when the Alert's evidence began.</summary>
     Task<HolderBaseline> GetHolderBaselineAsync(string accountId, DateTimeOffset before, CancellationToken ct);
 }
 

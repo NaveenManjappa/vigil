@@ -23,7 +23,7 @@ public sealed record AnalystDecision(DecisionOutcome Outcome, Recommendation Act
 public sealed record ApprovalRequest(
     Guid CaseId,
     Finding? Finding,
-    bool ReviewFlag,
+    bool ReviewFlagged,
     bool InvestigationFailed,
     IReadOnlyList<string> RejectionReasons,
     IReadOnlyDictionary<string, string> PseudonymMap,

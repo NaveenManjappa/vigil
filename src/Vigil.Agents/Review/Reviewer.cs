@@ -2,7 +2,6 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Vigil.Domain.Telemetry;
 
 namespace Vigil.Agents;
 
@@ -28,14 +27,7 @@ public sealed class Reviewer
     public Reviewer(IChatClient chat)
     {
         _chat = chat;
-        _agent = chat.AsAIAgent(new ChatClientAgentOptions
-        {
-            Id = AgentId,
-            Name = AgentName,
-            ChatOptions = new ChatOptions { Instructions = Prompts.Load(PromptVersion), Temperature = 0 },
-        })
-            // The invoke_agent span, tagged with the agent's Id, that its chat and tool spans nest under.
-            .AsBuilder().UseOpenTelemetry(sourceName: VigilTelemetry.AgentsSourceName).Build();
+        _agent = ChatAgents.Create(chat, AgentId, AgentName, PromptVersion);
     }
 
     /// <summary>
@@ -45,12 +37,12 @@ public sealed class Reviewer
     public async Task<ReviewerResult> ReviewAsync(Finding finding, MaskedEvidence evidence, CancellationToken ct)
     {
         var response = await _agent.RunAsync<Review>(
-            Message(finding, evidence), serializerOptions: Investigator.Json, cancellationToken: ct);
+            Message(finding, evidence), serializerOptions: ChatAgents.Json, cancellationToken: ct);
 
         var review = response.Result;
         return new ReviewerResult(
             review with { Reasons = review.Reasons ?? [] },
-            response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0, Investigator.ModelOf(response, _chat));
+            response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0, ChatAgents.ModelOf(response, _chat));
     }
 
     private static string Message(Finding finding, MaskedEvidence evidence)
@@ -61,10 +53,10 @@ public sealed class Reviewer
 
         var message = new StringBuilder()
             .AppendLine("Review this Finding:")
-            .AppendLine(JsonSerializer.Serialize(masked, Investigator.Json))
+            .AppendLine(JsonSerializer.Serialize(masked, ChatAgents.Json))
             .AppendLine()
             .AppendLine("Evidence for the cited refs:");
-        foreach (var line in evidence.LinesFor(finding.Evidence))
+        foreach (var line in evidence.LinesFor(finding.EvidenceRefs))
             message.AppendLine(line);
         return message.ToString();
     }

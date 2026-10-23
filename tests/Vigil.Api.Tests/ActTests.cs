@@ -44,7 +44,7 @@ public sealed class ActTests(MeteredApiFactory factory) : IClassFixture<MeteredA
     {
         var client = factory.CreateClient();
         var caseId = await AwaitingApprovalAsync(client, "ACC-ACT-AUDIT");
-        var cited = (await client.GetFromJsonAsync<CaseDetail>($"/cases/{caseId}", Json, Ct))!.Finding!.Evidence;
+        var cited = (await client.GetFromJsonAsync<CaseDetail>($"/cases/{caseId}", Json, Ct))!.Finding!.EvidenceRefs;
 
         (await DecideAsync(client, caseId,
             new(DecisionOutcome.FalsePositive, Recommendation.ContactHolder, "analyst-7", "Holder moved house."))).EnsureSuccessStatusCode();

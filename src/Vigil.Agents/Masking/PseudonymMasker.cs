@@ -17,6 +17,7 @@ public sealed class PseudonymMasker
         [IdentifierKind.Address] = "ADDRESS",
         [IdentifierKind.IpAddress] = "IP",
         [IdentifierKind.DeviceId] = "DEVICE",
+        [IdentifierKind.Unclassified] = "VALUE",
     };
 
     private readonly Dictionary<string, string> _pseudonymByValue = new();

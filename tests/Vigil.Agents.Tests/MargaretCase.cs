@@ -16,7 +16,8 @@ public sealed class MargaretCase : IInvestigationSource
     public static readonly PortalEvent Reset = Event(Start.AddDays(20), EventType.PasswordReset, "D-77", "198.51.100.77", "RO");
     public static readonly PortalEvent Mfa = Event(Reset.OccurredAt.AddMinutes(4), EventType.MfaEnrolled, "D-77", "198.51.100.77", "RO");
     public static readonly PortalEvent Email = Event(Reset.OccurredAt.AddMinutes(10), EventType.EmailChanged, "D-77", "198.51.100.77", "RO",
-        new() { ["NewEmail"] = "m.attacker@example.net" });
+        // OldEmail and Name are attributes the masker has no rule for, as a new portal field would arrive.
+        new() { ["NewEmail"] = "m.attacker@example.net", ["OldEmail"] = "margaret.hale@example.com", ["Name"] = "Margaret Hale" });
     public static readonly PortalEvent Bank = Event(Reset.OccurredAt.AddDays(1), EventType.BankDetailsChanged, "D-77", "198.51.100.77", "RO",
         new() { ["NewBankAccountHash"] = "BA-9f31", ["Amount"] = "25000.00" });
 
@@ -36,7 +37,7 @@ public sealed class MargaretCase : IInvestigationSource
     public static readonly string[] RawIdentifiers =
     [
         "ACC-MARGARET", "HOLDER-MARGARET", "D-MARGARET-LAPTOP", "203.0.113.51", "D-77", "198.51.100.77",
-        "m.attacker@example.net", "BA-9f31", "ACC-PRIYA", "HOLDER-PRIYA", "198.51.100.78", "ACC-DEREK",
+        "m.attacker@example.net", "margaret.hale@example.com", "Margaret Hale", "BA-9f31", "ACC-PRIYA", "HOLDER-PRIYA", "198.51.100.78", "ACC-DEREK",
     ];
 
     private static readonly PortalEvent[] Timeline = [Login, Reset, Mfa, Email, Bank];

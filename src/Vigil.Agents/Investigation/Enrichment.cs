@@ -9,12 +9,12 @@ namespace Vigil.Agents;
 /// </summary>
 public sealed class Enrichment
 {
-    private Enrichment(Alert alert, MaskedEvidence evidence, string brief, DateTimeOffset flaggedFrom)
+    private Enrichment(Alert alert, MaskedEvidence evidence, string brief, DateTimeOffset evidenceFrom)
     {
         Alert = alert;
         Evidence = evidence;
         Brief = brief;
-        FlaggedFrom = flaggedFrom;
+        EvidenceFrom = evidenceFrom;
     }
 
     public Alert Alert { get; }
@@ -27,7 +27,7 @@ public sealed class Enrichment
     public string Brief { get; }
 
     /// <summary>When the earliest event any Rule Hit cites happened: the Holder baseline is taken from before it.</summary>
-    public DateTimeOffset FlaggedFrom { get; }
+    public DateTimeOffset EvidenceFrom { get; }
 
     public static async Task<Enrichment> CreateAsync(Alert alert, IInvestigationSource source, CancellationToken ct)
     {
@@ -56,7 +56,7 @@ public sealed class Enrichment
         eventLines.ForEach(line => brief.AppendLine(line));
 
         var own = ordered.Where(e => e.AccountId == alert.AccountId).ToList();
-        var flaggedFrom = own.Count > 0 ? own[0].OccurredAt : alert.Hits.Min(h => h.TriggeredAt);
-        return new Enrichment(alert, evidence, brief.ToString(), flaggedFrom);
+        var evidenceFrom = own.Count > 0 ? own[0].OccurredAt : alert.Hits.Min(h => h.TriggeredAt);
+        return new Enrichment(alert, evidence, brief.ToString(), evidenceFrom);
     }
 }

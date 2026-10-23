@@ -7,7 +7,7 @@ Before the Reviewer runs, code validates the Finding: every field inside the con
 `InvestigationLoop.RunAsync` runs Investigate, Validate and Review with one retry, and returns an `InvestigationOutcome` on every path, so a Case always reaches Await Approval:
 
 - **Approved:** the Finding, unflagged.
-- **Rejected, by validation or the Reviewer:** the Investigator runs once more with the reasons, masked, appended to its brief. A second rejection keeps the second Finding with the Review Flag and the last reasons.
+- **Rejected, by validation or the Reviewer:** the Investigator runs once more with the reasons, masked, appended to its brief. A second rejection keeps the second Finding with the Review Flag and the last reasons, unless that Finding is incomplete (a missing summary or evidence list, or an enum outside the contract): there is nothing sound to show the analyst or cite in an Audit Entry, so it fails the Investigation instead.
 - **Unparseable Investigator reply:** treated as a rejection on the first attempt ("reply with one JSON object"), because a formatting slip is often a one-off; on the retry it fails the Investigation.
 - **LLM error or timeout, from either agent, or an unparseable Review:** no Finding and InvestigationFailed. An outage will not heal within one retry, so it is not retried; a Reviewer that cannot answer leaves the Finding unchecked, and an unchecked Finding is not shown as if it were reviewed. A timeout surfaces as `OperationCanceledException` with the caller's token untouched, so it fails like any error; only a cancelled caller token, the host stopping, escapes, and the startup re-queue (ADR-0004) runs the Case again.
 

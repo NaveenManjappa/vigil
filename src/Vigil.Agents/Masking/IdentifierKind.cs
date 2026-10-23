@@ -14,4 +14,7 @@ public enum IdentifierKind
     Address,
     IpAddress,
     DeviceId,
+
+    /// <summary>A Portal Event attribute with no known kind, masked because it is not known to name no one.</summary>
+    Unclassified,
 }

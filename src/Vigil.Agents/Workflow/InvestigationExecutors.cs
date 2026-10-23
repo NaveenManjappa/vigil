@@ -40,7 +40,7 @@ internal sealed class InvestigateExecutor(InvestigationLoop loop, EnrichmentHand
         return new ApprovalRequest(
             message.CaseId,
             outcome.Finding,
-            outcome.ReviewFlag,
+            outcome.ReviewFlagged,
             outcome.InvestigationFailed,
             outcome.RejectionReasons,
             enrichment.Evidence.Masker.Map,

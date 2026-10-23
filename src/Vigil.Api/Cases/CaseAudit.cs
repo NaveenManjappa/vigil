@@ -26,11 +26,14 @@ public sealed record AuditEntryView(
 internal static class CaseAudit
 {
     /// <summary>The refs the Case's Finding cites, in its order, with their EventIds; none when there is no Finding.</summary>
-    public static List<AuditRef> CitedRefs(StoredCase @case)
-    {
-        if (@case.Finding is null) return [];
+    public static List<AuditRef> CitedRefs(StoredCase @case) =>
+        @case.Finding is null ? [] : [.. Resolve(@case, Agents.Finding.FromJson(@case.Finding)).Select(r => new AuditRef(r.Ref, r.EventIds))];
 
+    /// <summary>Each ref <paramref name="finding"/> cites, in its order, with the EventIds the Case says it stands for.</summary>
+    public static IEnumerable<(string Ref, List<Guid> EventIds)> Resolve(StoredCase @case, Agents.Finding finding)
+    {
+        // Validation rejects a Finding citing a ref never issued, so an unknown one here stands for no events, not an error.
         var refs = @case.EvidenceRefs ?? [];
-        return [.. Agents.Finding.FromJson(@case.Finding).Evidence.Select(r => new AuditRef(r, refs.GetValueOrDefault(r) ?? []))];
+        return finding.EvidenceRefs.Select(r => (r, refs.GetValueOrDefault(r) ?? []));
     }
 }

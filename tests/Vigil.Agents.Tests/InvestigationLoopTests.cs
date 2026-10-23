@@ -43,7 +43,7 @@ public sealed class InvestigationLoopTests
         var (_, outcome) = await RunAsync(chat);
 
         Assert.False(outcome.InvestigationFailed);
-        Assert.False(outcome.ReviewFlag);
+        Assert.False(outcome.ReviewFlagged);
         Assert.Equal(Recommendation.BlockBankChanges, outcome.Finding!.Recommendation);
         Assert.Equal(
             [new AgentUsage(Investigator.AgentId, Investigator.PromptVersion, 200, 20), new AgentUsage(Reviewer.AgentId, Reviewer.PromptVersion, 200, 20)],
@@ -59,7 +59,7 @@ public sealed class InvestigationLoopTests
 
         var (_, outcome) = await RunAsync(chat);
 
-        Assert.False(outcome.ReviewFlag);
+        Assert.False(outcome.ReviewFlagged);
         Assert.Equal(Recommendation.ContactHolder, outcome.Finding!.Recommendation);
         Assert.Contains("- E-3 does not show a new device.", UserText(chat.Calls[2]));
         Assert.Equal(4, outcome.Usage.Count);
@@ -74,7 +74,7 @@ public sealed class InvestigationLoopTests
 
         var (_, outcome) = await RunAsync(chat);
 
-        Assert.True(outcome.ReviewFlag);
+        Assert.True(outcome.ReviewFlagged);
         Assert.False(outcome.InvestigationFailed);
         Assert.Equal(Recommendation.ContactHolder, outcome.Finding!.Recommendation);
         Assert.Equal(["Nothing shows RO is unusual for the Holder."], outcome.RejectionReasons);
@@ -93,7 +93,7 @@ public sealed class InvestigationLoopTests
         Assert.False(IsReviewer(chat.Calls[1]));
         Assert.Contains("E-42", UserText(chat.Calls[1]));
         Assert.True(IsReviewer(chat.Calls[2]));
-        Assert.False(outcome.ReviewFlag);
+        Assert.False(outcome.ReviewFlagged);
     }
 
     [Fact]
@@ -105,7 +105,7 @@ public sealed class InvestigationLoopTests
         var (_, outcome) = await RunAsync(chat);
 
         Assert.DoesNotContain(chat.Calls, IsReviewer);
-        Assert.True(outcome.ReviewFlag);
+        Assert.True(outcome.ReviewFlagged);
         Assert.Contains(outcome.RejectionReasons, r => r.Contains("E-42"));
     }
 
@@ -131,7 +131,7 @@ public sealed class InvestigationLoopTests
         var (_, outcome) = await RunAsync(chat);
 
         Assert.False(outcome.InvestigationFailed);
-        Assert.False(outcome.ReviewFlag);
+        Assert.False(outcome.ReviewFlagged);
     }
 
     [Fact]
@@ -190,6 +190,8 @@ public sealed class InvestigationLoopTests
         Assert.Contains(sent, text => text.Contains("reviewer of a fraud investigator"));
         Assert.Contains(sent, text => text.Contains($"The summary does not explain {enrichment.Evidence.Mask("D-77")}."));
         Assert.Contains(sent, text => text.Contains($"Device {enrichment.Evidence.Mask("D-77")} reset the password"));
+        // Amount is on the allow-list: the agents reason on it, so it is the one attribute shown as it is.
+        Assert.Contains(sent, text => text.Contains("Amount=25000.00"));
         foreach (var raw in MargaretCase.RawIdentifiers)
             Assert.DoesNotContain(sent, text => text.Contains(raw));
     }

@@ -23,7 +23,7 @@ public sealed record ResolvedEvidenceRef(string Ref, IReadOnlyList<Guid> EventId
 
 /// <summary>The Finding as the analyst reads it: real identifiers in the summary, refs resolved to EventIds.</summary>
 public sealed record AnalystFinding(
-    Verdict Verdict, Confidence Confidence, string Summary, Recommendation Recommendation, IReadOnlyList<ResolvedEvidenceRef> Evidence);
+    Verdict Verdict, Confidence Confidence, string Summary, Recommendation Recommendation, IReadOnlyList<ResolvedEvidenceRef> EvidenceRefs);
 
 /// <summary>The Analyst Decision on a Case, once made.</summary>
 public sealed record DecisionView(DecisionOutcome Outcome, Recommendation Action, string AnalystId, string? Notes, DateTimeOffset DecidedAt);
@@ -62,10 +62,9 @@ public sealed record CaseDetail(
 
         var finding = Agents.Finding.FromJson(c.Finding);
         var masker = PseudonymMasker.FromMap(c.PseudonymMap ?? []);
-        var refs = c.EvidenceRefs ?? [];
         return new AnalystFinding(
             finding.Verdict, finding.Confidence, masker.Unmask(finding.Summary), finding.Recommendation,
-            [.. finding.Evidence.Select(r => new ResolvedEvidenceRef(r, refs.GetValueOrDefault(r) ?? []))]);
+            [.. CaseAudit.Resolve(c, finding).Select(r => new ResolvedEvidenceRef(r.Ref, r.EventIds))]);
     }
 }
 

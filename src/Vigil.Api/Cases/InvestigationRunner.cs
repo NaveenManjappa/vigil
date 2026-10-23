@@ -33,7 +33,7 @@ public sealed class WorkflowInvestigationRunner(
 
         // Written only once the paused run's checkpoint is saved, so an AwaitingApproval Case always has one to resume.
         @case.Finding = request.Finding?.ToJson();
-        @case.ReviewFlagged = request.ReviewFlag;
+        @case.ReviewFlagged = request.ReviewFlagged;
         @case.InvestigationFailed = request.InvestigationFailed;
         @case.PseudonymMap = new(request.PseudonymMap);
         @case.EvidenceRefs = request.EvidenceRefs.ToDictionary(r => r.Key, r => r.Value.ToList());
@@ -73,6 +73,6 @@ public sealed class WorkflowInvestigationRunner(
 
     private static string ReviewDetail(ApprovalRequest request) =>
         request.InvestigationFailed ? "Not reviewed: the Investigation failed"
-        : request.ReviewFlag ? "Rejected after the retry: " + string.Join("; ", request.RejectionReasons)
+        : request.ReviewFlagged ? "Rejected after the retry: " + string.Join("; ", request.RejectionReasons)
         : "Approved";
 }

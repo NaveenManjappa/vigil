@@ -79,8 +79,8 @@ public sealed class CaseDecisionTests(ApiFactory factory) : IClassFixture<ApiFac
         // The Fake names the Account by its Pseudonym; the analyst sees the real AccountId.
         Assert.Contains("ACC-DECIDE-READ", finding.Summary);
         Assert.DoesNotContain("ACCOUNT-1", finding.Summary);
-        Assert.NotEmpty(finding.Evidence);
-        Assert.All(finding.Evidence, e => Assert.All(e.EventIds, id => Assert.Contains(id, eventIds)));
+        Assert.NotEmpty(finding.EvidenceRefs);
+        Assert.All(finding.EvidenceRefs, e => Assert.All(e.EventIds, id => Assert.Contains(id, eventIds)));
     }
 
     [Fact]
@@ -96,6 +96,25 @@ public sealed class CaseDecisionTests(ApiFactory factory) : IClassFixture<ApiFac
         Assert.Equal(HttpStatusCode.OK, decided.StatusCode);
         Assert.Equal(CaseStatus.Closed, (await DetailAsync(client, caseId)).Status);
         Assert.Equal(HttpStatusCode.Conflict, again.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_case_whose_Findings_were_incomplete_waits_for_approval_as_InvestigationFailed_and_can_be_read()
+    {
+        // No summary and no evidence, twice: it parses, so only the loop can keep it from reaching the analyst.
+        var incomplete = new ScriptedChatClient("""{"verdict":"LikelyAccountTakeover","confidence":"High","recommendation":"BlockBankChanges"}""");
+        await using var host = factory.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+            s.Replace(ServiceDescriptor.Singleton<IChatClient>(incomplete))));
+        var client = host.CreateClient();
+        await TakeOverToHighAsync(client, "ACC-DECIDE-INCOMPLETE");
+
+        var response = await client.GetAsync($"/cases/{await AwaitingApprovalAsync(client, "ACC-DECIDE-INCOMPLETE")}", Ct);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var @case = (await response.Content.ReadFromJsonAsync<CaseDetail>(Json, Ct))!;
+        Assert.True(@case.InvestigationFailed);
+        Assert.False(@case.ReviewFlagged);
+        Assert.Null(@case.Finding);
     }
 
     [Fact]
@@ -149,6 +168,25 @@ public sealed class CaseRestartTests(ApiFactory factory) : IClassFixture<ApiFact
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(CaseStatus.Closed, (await restarted.GetFromJsonAsync<CaseDetail>($"/cases/{caseId}", Json, Ct))!.Status);
     }
+}
+
+/// <summary>Gives the same reply to every call, as a model stuck on one bad answer would.</summary>
+public sealed class ScriptedChatClient(string reply) : IChatClient
+{
+    public Task<ChatResponse> GetResponseAsync(IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
+        Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, reply)));
+
+    public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+        IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        foreach (var update in (await GetResponseAsync(messages, options, cancellationToken)).ToChatResponseUpdates())
+            yield return update;
+    }
+
+    public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+    public void Dispose() { }
 }
 
 public sealed class UnreachableChatClient : IChatClient

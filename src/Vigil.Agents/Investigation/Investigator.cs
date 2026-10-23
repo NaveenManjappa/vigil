@@ -1,9 +1,6 @@
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
-using Vigil.Domain.Telemetry;
 
 namespace Vigil.Agents;
 
@@ -23,12 +20,6 @@ public sealed class Investigator
     public const string AgentName = "Investigator";
     public const string PromptVersion = "investigator.v1";
 
-    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
-    {
-        Converters = { new JsonStringEnumConverter() },
-        TypeInfoResolver = new DefaultJsonTypeInfoResolver(),
-    };
-
     private readonly AIAgent _agent;
     private readonly IInvestigationSource _source;
     private readonly IChatClient _chat;
@@ -37,14 +28,7 @@ public sealed class Investigator
     {
         _source = source;
         _chat = chat;
-        _agent = chat.AsAIAgent(new ChatClientAgentOptions
-        {
-            Id = AgentId,
-            Name = AgentName,
-            ChatOptions = new ChatOptions { Instructions = Prompts.Load(PromptVersion), Temperature = 0 },
-        })
-            // The invoke_agent span, tagged with the agent's Id, that its chat and tool spans nest under.
-            .AsBuilder().UseOpenTelemetry(sourceName: VigilTelemetry.AgentsSourceName).Build();
+        _agent = ChatAgents.Create(chat, AgentId, AgentName, PromptVersion);
     }
 
     /// <summary>
@@ -59,22 +43,11 @@ public sealed class Investigator
         var options = new ChatClientAgentRunOptions(new ChatOptions { Tools = tools.AsAITools() });
 
         var response = await _agent.RunAsync<Finding>(
-            Message(enrichment, reviewerReasons), serializerOptions: Json, options: options, cancellationToken: ct);
+            Message(enrichment, reviewerReasons), serializerOptions: ChatAgents.Json, options: options, cancellationToken: ct);
 
         // Result parses lazily, so it is read here, where a malformed reply should fail.
         return new InvestigatorResult(
-            response.Result, response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0, ModelOf(response, _chat));
-    }
-
-    /// <summary>
-    /// The model named on the reply, which is the one that actually answered, else the provider's default. The chat
-    /// client's reply sits under the structured-output wrapper, one raw representation down per layer.
-    /// </summary>
-    internal static string? ModelOf(AgentResponse response, IChatClient chat)
-    {
-        object? raw = response;
-        while (raw is AgentResponse layer) raw = layer.RawRepresentation;
-        return (raw as ChatResponse)?.ModelId ?? chat.GetService<ChatClientMetadata>()?.DefaultModelId;
+            response.Result, response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0, ChatAgents.ModelOf(response, _chat));
     }
 
     private static string Message(Enrichment enrichment, IReadOnlyList<string> reviewerReasons)

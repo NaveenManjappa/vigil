@@ -57,7 +57,7 @@ public sealed partial class FakeChatClient : IChatClient
         {
             verdict = "LikelyAccountTakeover",
             confidence = "High",
-            summary = $"Scripted Finding from the Fake provider: the flagged activity on {AccountPseudonym().Match(brief).Value} came " +
+            summary = $"Scripted Finding from the Fake provider: the activity on {AccountPseudonym().Match(brief).Value} came " +
                       "from a device and country the Holder does not use, and that device is shared with a Confirmed Fraud Account.",
             recommendation = "BlockBankChanges",
             evidence,

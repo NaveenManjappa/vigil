@@ -39,7 +39,7 @@ internal sealed class InvestigatorTools(Enrichment enrichment, IInvestigationSou
             : string.Join('\n', neighbourhood.Identifiers.Select(enrichment.Evidence.Describe));
     }
 
-    [Description("The Holder's usual countries, devices and login frequency, from before the flagged activity began.")]
+    [Description("The Holder's usual countries, devices and login frequency, from before the Alert's evidence began.")]
     public async Task<string> GetHolderBaseline(CancellationToken ct) =>
-        enrichment.Evidence.Describe(await source.GetHolderBaselineAsync(enrichment.AccountId, enrichment.FlaggedFrom, ct));
+        enrichment.Evidence.Describe(await source.GetHolderBaselineAsync(enrichment.AccountId, enrichment.EvidenceFrom, ct));
 }

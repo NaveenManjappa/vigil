@@ -8,6 +8,14 @@ public static class FindingValidation
 {
     public const int MaxSummaryWords = 120;
 
+    /// <summary>
+    /// Whether every field the analyst's view and the Audit Entry read is there and inside the contract. A Finding
+    /// that is not is never kept, not even with the Review Flag: there would be nothing sound to show or audit.
+    /// </summary>
+    public static bool IsComplete(Finding finding) =>
+        Enum.IsDefined(finding.Verdict) && Enum.IsDefined(finding.Confidence) && Enum.IsDefined(finding.Recommendation)
+        && !string.IsNullOrWhiteSpace(finding.Summary) && finding.EvidenceRefs is not null;
+
     /// <summary>Why the Finding is rejected; empty when it passes.</summary>
     public static IReadOnlyList<string> Check(Finding finding, EvidenceRefTable refs)
     {
@@ -28,9 +36,9 @@ public static class FindingValidation
         else if (words > MaxSummaryWords)
             reasons.Add($"The summary is {words} words; it must be at most {MaxSummaryWords}.");
 
-        if (finding.Evidence is not { Count: > 0 })
+        if (finding.EvidenceRefs is not { Count: > 0 })
             reasons.Add("The Finding cites no evidence; cite the Evidence Refs the summary relies on.");
-        else if (refs.FindUnknown(finding.Evidence) is { Count: > 0 } unknown)
+        else if (refs.FindUnknown(finding.EvidenceRefs) is { Count: > 0 } unknown)
             reasons.Add($"These Evidence Refs were never given to you: {string.Join(", ", unknown)}. Cite only refs you were shown.");
 
         return reasons;

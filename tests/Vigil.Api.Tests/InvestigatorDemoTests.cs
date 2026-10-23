@@ -41,10 +41,10 @@ public sealed class InvestigatorDemoTests(ApiFactory factory) : IClassFixture<Ap
 
         Assert.Equal(Verdict.LikelyAccountTakeover, result.Finding.Verdict);
         Assert.Equal(Recommendation.BlockBankChanges, result.Finding.Recommendation);
-        Assert.NotEmpty(result.Finding.Evidence);
-        Assert.Empty(enrichment.Evidence.Refs.FindUnknown(result.Finding.Evidence));
+        Assert.NotEmpty(result.Finding.EvidenceRefs);
+        Assert.Empty(enrichment.Evidence.Refs.FindUnknown(result.Finding.EvidenceRefs));
         // The one tool call adds the graph facts, and D-77's fact is among the cited evidence.
-        Assert.Contains(result.Finding.Evidence, r => r.StartsWith("G-"));
+        Assert.Contains(result.Finding.EvidenceRefs, r => r.StartsWith("G-"));
         Assert.DoesNotContain("D-77", result.Finding.Summary);
     }
 
@@ -59,7 +59,7 @@ public sealed class InvestigatorDemoTests(ApiFactory factory) : IClassFixture<Ap
         var outcome = await scope.ServiceProvider.GetRequiredService<InvestigationLoop>().RunAsync(enrichment, Ct);
 
         Assert.False(outcome.InvestigationFailed);
-        Assert.False(outcome.ReviewFlag);
+        Assert.False(outcome.ReviewFlagged);
         Assert.Equal([Investigator.AgentId, Reviewer.AgentId], outcome.Usage.Select(u => u.AgentId));
     }
 
@@ -71,7 +71,7 @@ public sealed class InvestigatorDemoTests(ApiFactory factory) : IClassFixture<Ap
         var source = scope.ServiceProvider.GetRequiredService<IInvestigationSource>();
         var enrichment = await Enrichment.CreateAsync(alert, source, Ct);
 
-        var baseline = await source.GetHolderBaselineAsync("ACC-MARGARET", enrichment.FlaggedFrom, Ct);
+        var baseline = await source.GetHolderBaselineAsync("ACC-MARGARET", enrichment.EvidenceFrom, Ct);
         var neighbourhood = await source.GetNeighbourhoodAsync("ACC-MARGARET", Ct);
 
         Assert.Equal(["GB"], baseline.UsualCountries);

@@ -93,7 +93,7 @@ public sealed class InvestigationWorkflow(
     }
 
     // Built per run because a manager caches what it has read; the store underneath is what persists.
-    private CheckpointManager Checkpoints() => CheckpointManager.CreateJson(checkpoints, Investigator.Json);
+    private CheckpointManager Checkpoints() => CheckpointManager.CreateJson(checkpoints, ChatAgents.Json);
 
     private static string SessionId(Guid caseId) => caseId.ToString();
 
