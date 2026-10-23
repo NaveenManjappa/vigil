@@ -54,11 +54,15 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
             .HasConversion(
                 v => JsonSerializer.Serialize(v, JsonSerializerOptions.Default),
                 v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonSerializerOptions.Default) ?? new(),
-                new ValueComparer<Dictionary<string, string>>(
-                    (a, b) => a!.Count == b!.Count && !a.Except(b).Any(),
-                    v => v.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key, kv.Value)),
-                    v => new Dictionary<string, string>(v)));
+                StringMapComparer);
     }
+
+    // Compares by content, so EF notices an entry changed inside the same dictionary instance. Null-safe because a
+    // Case has no pseudonym map until its Investigation runs.
+    private static readonly ValueComparer<Dictionary<string, string>?> StringMapComparer = new(
+        (a, b) => a == null ? b == null : b != null && a.Count == b.Count && !a.Except(b).Any(),
+        v => v == null ? 0 : v.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key, kv.Value)),
+        v => v == null ? null : new Dictionary<string, string>(v));
 
     private static void ConfigureAlerts(ModelBuilder modelBuilder)
     {
@@ -83,6 +87,20 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
         cases.ToTable("cases");
         cases.HasKey(c => c.CaseId);
         cases.Property(c => c.Status).HasConversion<string>().HasMaxLength(32);
+        cases.Property(c => c.PromptVersion).HasMaxLength(64);
+
+        // Kept as raw JSON here: the Finding's shape belongs to Vigil.Agents, which Infrastructure does not reference.
+        cases.Property(c => c.Finding).HasColumnType("jsonb");
+        cases.Property(c => c.PseudonymMap)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, JsonSerializerOptions.Default),
+                v => v == null ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonSerializerOptions.Default),
+                StringMapComparer);
+
+        // The worker's startup re-queue and the daily limit both filter on these.
+        cases.HasIndex(c => c.Status);
+        cases.HasIndex(c => c.InvestigationStartedAt);
 
         // One-to-one with a unique AlertId, so the database itself refuses a second Case for an Alert.
         alerts.HasOne(a => a.Case).WithOne(c => c.Alert).HasForeignKey<StoredCase>(c => c.AlertId);

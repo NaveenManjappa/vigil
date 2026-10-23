@@ -7,7 +7,7 @@ using Vigil.Domain.Detection;
 
 namespace Vigil.Api.Tests;
 
-public sealed class CaseTests(ApiFactory factory) : IClassFixture<ApiFactory>
+public sealed class CaseTests(InvestigationsOffApiFactory factory) : IClassFixture<InvestigationsOffApiFactory>
 {
     private static readonly DateTimeOffset Monday = new(2026, 9, 21, 9, 0, 0, TimeSpan.Zero);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
