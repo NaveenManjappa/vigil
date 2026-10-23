@@ -19,6 +19,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddNpgsqlDbContext<VigilDbContext>("vigil");
+builder.Services.AddLlm(builder.Configuration);
 
 // Loaded once at startup so a malformed rules file stops the API rather than failing mid-ingest (ADR-0002).
 var rulesPath = builder.Configuration["Rules:Path"] ?? throw new InvalidOperationException("Rules:Path is not configured.");

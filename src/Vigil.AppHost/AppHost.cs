@@ -33,7 +33,16 @@ IResourceBuilder<ProjectResource> WithStores(IResourceBuilder<ProjectResource> p
     .WithEnvironment("Neo4j__Password", neo4jPassword)
     .WaitFor(neo4j);
 
-var api = WithStores(builder.AddProject<Projects.Vigil_Api>("api"));
+// Generated so the AppHost starts without prompting while Llm:Provider is Fake; to use Azure OpenAI, replace the
+// persisted value with the real key (user-secrets `Parameters:azure-openai-key`), so it never lands in source control.
+var azureOpenAiKey = builder.AddParameter(
+    "azure-openai-key",
+    new GenerateParameterDefault { MinLength = 32, Special = false },
+    secret: true,
+    persist: true);
+
+var api = WithStores(builder.AddProject<Projects.Vigil_Api>("api"))
+    .WithEnvironment("Llm__ApiKey", azureOpenAiKey);
 
 // Explicit start, because a rebuild must only run with ingestion stopped (ADR-0015). It waits for the API, which
 // migrates the database, and has no launch profile, so it binds no ports beside the API.
