@@ -35,14 +35,16 @@ dotnet run --project src/Vigil.Simulator -- generate --seed 42 --holders 1000
 # Wrote datasets/seed-42-holders-1000.jsonl
 ```
 
-To score that Dataset with the rules alone (in memory: no API, no database, no LLM, so it is free to run any time):
+To score that Dataset with the graph off (v1) and on (v2) side by side (no API, no Postgres, no LLM, so it is free to run any time; Docker must be running):
 
 ```bash
 dotnet run --project src/Vigil.Evaluation
 # Wrote eval-reports/<run ID>.md
+# v1: detection rate 17/30, false-positive rate 0/970, early-detection rate 9/9
+# v2: detection rate 22/30, false-positive rate 0/970, early-detection rate 9/9
 ```
 
-It generates the Dataset first if the file is missing. Options: `--seed 42`, `--holders 1000`, `--rules config/rules.v1.json`, `--out eval-reports`. The report gives detection rate, false-positive rate, per-rule precision and early-detection rate, plus a per-Persona breakdown, and records the run ID, seed and Rules Version. See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
+It generates the Dataset first if the file is missing. v1 is scored in memory. For v2 it starts a throwaway Neo4j container, so the demo graph is never touched, and replays the Dataset's events into it in OccurredAt order, so no Graph Rule sees a link that formed after the event being scored (about a minute for 1,000 holders). Options: `--seed 42`, `--holders 1000`, `--rules-off config/rules.v1.json`, `--rules-on config/rules.v2.json`, `--out eval-reports`. The report gives detection rate, false-positive rate, per-rule precision and early-detection rate, plus a per-Persona breakdown, for both Rules Versions, and records the run ID and seed. See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
 
 ### Try a scenario
 
@@ -59,7 +61,7 @@ dotnet run --project src/Vigil.Evaluation -- scenario scenarios/my-story.json
 
 The dry run uses the API's rules, `config/rules.v2.json`, but has no graph, so it scores sequence and first-sighting Rules only. Margaret's dry run peaks at 90; posted to the API after the D-77 Scenarios, she also gets G2 and G3.
 
-To try a rule change, edit a copy of the rules file and pass it with `--rules my-rules.json`. The scenario stays the same and only the verdict changes. Run the full evaluation with the same `--rules` to see what the change does to detection and false-positive rates.
+To try a rule change, edit a copy of the rules file and pass it with `--rules my-rules.json`. The scenario stays the same and only the verdict changes. Run the full evaluation with it as `--rules-on my-rules.json` to see what the change does to detection and false-positive rates.
 
 Without `--scenario`, the simulator posts every shipped Scenario in order of its first event, so the earlier D-77 Accounts are in the graph before Margaret's takeover arrives. To post one to the running API, with the AppHost up, point the simulator at the API yourself, because outside Aspire it has no service discovery:
 
@@ -102,9 +104,9 @@ API tests start a throwaway Postgres container via Testcontainers.
 | `src/Vigil.Infrastructure` | EF Core event and alert stores, migrations |
 | `src/Vigil.Api` | Ingestion, timeline, alert, case and rules endpoints |
 | `src/Vigil.Simulator` | Posts Scenario files; the seeded Persona Dataset generator |
-| `src/Vigil.Evaluation` | Rules-only evaluation console: Dataset in, markdown report out; `scenario` dry run |
+| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on markdown report out; `scenario` dry run |
 | `tests/Vigil.Detection.Tests` | Detection tests against the shipped rules file |
-| `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, the seed-42 known misses, the report |
+| `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, a Ring flagged only with the graph on, the seed-42 known misses, the report |
 | `tests/Vigil.Simulator.Tests` | Dataset generator tests (determinism, Persona mix, slow-burn spacing) and Scenario file loading |
 | `tests/Vigil.Api.Tests` | API tests against real Postgres |
 | `config/rules.v1.json` | Versioned rules, windows, points and band thresholds |

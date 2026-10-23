@@ -17,7 +17,7 @@ flowchart LR
     Det["Vigil.Detection<br/>Detector.Detect (pure)"]
     Gen["Vigil.Simulator generate<br/>seeded Personas"]
     Ds[/"datasets/*.jsonl"/]
-    Eval["Vigil.Evaluation<br/>rules-only console"]
+    Eval["Vigil.Evaluation<br/>evaluation console"]
     Rep[/"eval-reports/*.md"/]
 
     Sim -- "POST /events" --> Api
@@ -37,7 +37,7 @@ flowchart LR
 | `Vigil.Infrastructure` | EF Core stores: append-only events, Alerts with their Rule Hits, and Cases. |
 | `Vigil.Api` | Ingests batches, runs detection inside the ingest transaction, and serves `/alerts`, `/cases`, `/rules` and Account timelines. |
 | `Vigil.Simulator` | Posts the Scenario files in `scenarios/` (Margaret and Mr Patel) to the API, and (`generate`) writes a seeded, labelled Dataset to a file. Labels never go to the API. |
-| `Vigil.Evaluation` | Loads a Dataset, runs `Detector.Detect` per Account in memory, and writes a markdown report. Its `scenario` command dry-runs one Scenario step by step against any rules file. No API, no database, no LLM. |
+| `Vigil.Evaluation` | Loads a Dataset, runs `Detector.Detect` per Account with the graph off and on, and writes a markdown report comparing them. With the graph on it replays the Dataset into a throwaway Neo4j container for the graph Rule Hits. Its `scenario` command dry-runs one Scenario step by step against any rules file. No API, no Postgres, no LLM. |
 | `Vigil.AppHost` | Starts PostgreSQL, Neo4j, the API and the simulator, and hosts the tracing dashboard. |
 
 ## Data flow
@@ -81,7 +81,7 @@ Mr Patel's house move (address change, then phone change, on his usual device) m
 
 ## Evaluation
 
-`dotnet run --project src/Vigil.Evaluation` scores the seed-42, 1,000-holder Dataset and writes `eval-reports/<run ID>.md` with:
+`dotnet run --project src/Vigil.Evaluation` scores the seed-42, 1,000-holder Dataset twice, with the graph off (v1) and on (v2), and writes both side by side to `eval-reports/<run ID>.md`. With the graph on it replays every event into a throwaway Neo4j container in OccurredAt order, one event at a time; after each it collects graph Rule Hits for the event's Account and its Neighbours, as ingestion does. Each Account is then scored once with the hits collected for it. The report has:
 
 - **Detection rate**: flagged fraud ÷ all fraud.
 - **False-positive rate**: flagged genuine ÷ all genuine.
@@ -89,4 +89,4 @@ Mr Patel's house move (address change, then phone change, on his usual device) m
 - **Early-detection rate**: ATO fraud flagged before its first BankDetailsChanged ÷ all ATO fraud.
 - A per-Persona breakdown beside PROJECT.md Section 10.1's expected outcome.
 
-An Account is flagged when any of its Alerts reached High or above. Two misses are expected at this stage: the slow-burn fraudster spaces each step just beyond its Rule's Window, and each fraud-ring Account alone reaches only Medium until Stage 2's graph rules link them.
+An Account is flagged when any of its Alerts reached High or above. With the graph off, each fraud-ring Account alone reaches only Medium; with it on, G1 and G3 lift all five to Critical. The slow-burn fraudster stays a known miss either way, since it spaces each step just beyond its Rule's Window. G2 has no hits, because the generated Dataset contains no Confirmed Fraud; Scenarios demonstrate it.

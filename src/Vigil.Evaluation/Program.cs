@@ -4,13 +4,17 @@ using Vigil.Evaluation;
 using Vigil.Simulator;
 using Vigil.Simulator.Scenarios;
 
-// [--seed 42] [--holders 1000] [--rules config/rules.v1.json] [--out eval-reports]
+// [--seed 42] [--holders 1000] [--rules-off config/rules.v1.json] [--rules-on config/rules.v2.json] [--out eval-reports]
 // scenario <file> [--rules config/rules.v2.json]
-// Rules-only and in memory: no API, no database, no LLM, so it is free to run any time (PROJECT.md Section 10.3).
+// No API, no Postgres and no LLM, so it is free to run any time (PROJECT.md Section 10.3). Graph on needs Docker.
 var seed = int.Parse(Option("--seed") ?? "42");
 var holders = int.Parse(Option("--holders") ?? "1000");
-var rulesPath = Option("--rules") ?? Path.Combine("config", "rules.v1.json");
+var offPath = Option("--rules-off") ?? Path.Combine("config", "rules.v1.json");
+var onPath = Option("--rules-on") ?? Path.Combine("config", "rules.v2.json");
 var outFolder = Option("--out") ?? "eval-reports";
+// --rules once chose the only Rules Version; ignoring it now would quietly report the defaults instead.
+if (args.FirstOrDefault() != "scenario" && args.Contains("--rules"))
+    throw new ArgumentException("The full evaluation takes --rules-off and --rules-on; --rules is for the scenario dry run.");
 
 // Printed rather than written to eval-reports/: a dry run is for trying a journey or a rule change live, not for comparing runs.
 if (args.FirstOrDefault() == "scenario")
@@ -27,20 +31,33 @@ var datasetPath = Path.Combine("datasets", $"seed-{seed}-holders-{holders}.jsonl
 if (!File.Exists(datasetPath))
     Console.WriteLine($"Generated {GenerateCommand.Run([GenerateCommand.Name, "--seed", $"{seed}", "--holders", $"{holders}"])}");
 
-var ruleSet = RuleSet.Load(rulesPath);
-EvaluationResult result;
+IReadOnlyList<LabelledAccount> dataset;
 using (var file = File.OpenRead(datasetPath))
-    result = Evaluator.Evaluate(Dataset.Read(file), ruleSet);
+    dataset = [.. Dataset.Read(file)];
 
-var run = new EvaluationRun($"{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}-{ruleSet.Version}-seed{seed}", seed, holders, ruleSet.Version, datasetPath);
+var offRules = RuleSet.Load(offPath);
+var onRules = RuleSet.Load(onPath);
+var offResult = Evaluator.Evaluate(dataset, offRules);
+
+IReadOnlyDictionary<string, IReadOnlyList<RuleHit>>? graphHits = null;
+if (onRules.Rules.Any(r => r.Kind == RuleKind.Graph))
+{
+    Console.WriteLine($"Replaying {dataset.Sum(a => a.Events.Count)} events into a throwaway Neo4j...");
+    await using var neo4j = await ThrowawayNeo4j.StartAsync(CancellationToken.None);
+    graphHits = await GraphReplay.CollectAsync(neo4j.Driver, dataset, onRules, CancellationToken.None);
+}
+var onResult = Evaluator.Evaluate(dataset, onRules, graphHits);
+
+var run = new EvaluationRun($"{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}-{offRules.Version}-{onRules.Version}-seed{seed}", seed, holders, datasetPath);
 Directory.CreateDirectory(outFolder);
 var reportPath = Path.Combine(outFolder, $"{run.RunId}.md");
-File.WriteAllText(reportPath, Report.Render(result, run));
+File.WriteAllText(reportPath, Report.Render(run, offResult, onResult));
 
 Console.WriteLine($"Wrote {reportPath}");
-Console.WriteLine($"Detection rate {result.DetectionRate.Count}/{result.DetectionRate.Of}, " +
-    $"false-positive rate {result.FalsePositiveRate.Count}/{result.FalsePositiveRate.Of}, " +
-    $"early-detection rate {result.EarlyDetectionRate.Count}/{result.EarlyDetectionRate.Of}");
+foreach (var result in new[] { offResult, onResult })
+    Console.WriteLine($"{result.RulesVersion}: detection rate {result.DetectionRate.Count}/{result.DetectionRate.Of}, " +
+        $"false-positive rate {result.FalsePositiveRate.Count}/{result.FalsePositiveRate.Of}, " +
+        $"early-detection rate {result.EarlyDetectionRate.Count}/{result.EarlyDetectionRate.Of}");
 
 string? Option(string name)
 {
