@@ -9,7 +9,7 @@ namespace Vigil.Api.Tests;
 /// Runs the real API against throwaway Postgres and Neo4j containers, so tests exercise the same SQL,
 /// jsonb mapping, primary-key behaviour and Cypher as production. One pair is shared per test class.
 /// </summary>
-public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
+public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
 {
     private const string Neo4jPassword = "vigil-test-password";
 
@@ -35,5 +35,15 @@ public sealed class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await base.DisposeAsync();
         await _postgres.DisposeAsync();
         await _neo4j.DisposeAsync();
+    }
+}
+
+/// <summary>For tests about opening and ordering Cases, which the Investigation worker would otherwise move on.</summary>
+public sealed class InvestigationsOffApiFactory : ApiFactory
+{
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.UseSetting("Investigation:Enabled", "false");
     }
 }

@@ -41,6 +41,11 @@ builder.Services.AddScoped<CaseStore>();
 builder.Services.AddScoped<ConfirmedFraudStore>();
 builder.Services.AddScoped<Ingestion>();
 builder.Services.AddScoped<GraphRebuild>();
+
+builder.Services.Configure<InvestigationOptions>(builder.Configuration.GetSection("Investigation"));
+builder.Services.AddSingleton<ICaseQueue, ChannelCaseQueue>();
+builder.Services.AddScoped<IInvestigationRunner, PassThroughInvestigationRunner>();
+builder.Services.AddHostedService<InvestigationWorker>();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));

@@ -14,4 +14,21 @@ public sealed class StoredCase
     public StoredAlert Alert { get; init; } = null!;
     public CaseStatus Status { get; set; }
     public DateTimeOffset OpenedAt { get; init; }
+
+    /// <summary>When its one Investigation began; the daily limit counts these, so the count survives a restart.</summary>
+    public DateTimeOffset? InvestigationStartedAt { get; set; }
+
+    /// <summary>Left Open because Investigations were switched off or the day's limit was spent.</summary>
+    public bool NotInvestigated { get; set; }
+
+    public bool ReviewFlagged { get; set; }
+    public bool InvestigationFailed { get; set; }
+
+    /// <summary>The Finding as the LLM wrote it, so still in Pseudonyms; only the analyst-facing read unmasks it.</summary>
+    public string? Finding { get; set; }
+
+    /// <summary>Pseudonym to real identifier, for this Case's Investigation only.</summary>
+    public Dictionary<string, string>? PseudonymMap { get; set; }
+
+    public string? PromptVersion { get; set; }
 }
