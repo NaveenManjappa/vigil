@@ -1,5 +1,6 @@
 using Neo4j.Driver;
 using Vigil.Domain.Events;
+using Vigil.Domain.Fraud;
 
 namespace Vigil.Graph;
 
@@ -44,6 +45,21 @@ public sealed class GraphProjector(IDriver driver)
             }
         });
     }
+
+    /// <summary>
+    /// Marks an Account as known fraud with a Case that CONCERNS it, which G2 looks for. Recording it twice keeps the
+    /// first decision. MERGE on a pattern has no uniqueness constraint to lean on, so callers hold the Account's lock.
+    /// </summary>
+    public async Task ProjectConfirmedFraudAsync(ConfirmedFraud fraud, CancellationToken ct) =>
+        await driver.ExecutableQuery(ConfirmedFraudCase)
+            .WithParameters(new { accountId = fraud.AccountId, decidedAt = fraud.DecidedAt })
+            .ExecuteAsync(ct);
+
+    private const string ConfirmedFraudCase = """
+        MERGE (a:Account {accountId: $accountId})
+        MERGE (c:Case {outcome: 'ConfirmedFraud'})-[:CONCERNS]->(a)
+          ON CREATE SET c.decidedAt = $decidedAt
+        """;
 
     private const string Owns = """
         UNWIND $rows AS row

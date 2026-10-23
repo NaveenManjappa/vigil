@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Vigil.Domain.Events;
+using Vigil.Domain.Fraud;
 
 namespace Vigil.Simulator.Scenarios;
 
@@ -26,18 +27,23 @@ public sealed partial class Scenario
         UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
     };
 
-    private Scenario(string name, string description, IReadOnlyList<PortalEvent> baseline, IReadOnlyList<ScenarioStep> steps)
+    private Scenario(
+        string name, string description, IReadOnlyList<PortalEvent> baseline, IReadOnlyList<ScenarioStep> steps, ConfirmedFraud? confirmedFraud)
     {
         Name = name;
         Description = description;
         Baseline = baseline;
         Steps = steps;
+        ConfirmedFraud = confirmedFraud;
     }
 
     public string Name { get; }
     public string Description { get; }
     public IReadOnlyList<PortalEvent> Baseline { get; }
     public IReadOnlyList<ScenarioStep> Steps { get; }
+
+    /// <summary>Set when the file gives a <c>confirmedFraud</c> decision date; the simulator seeds it after posting the events.</summary>
+    public ConfirmedFraud? ConfirmedFraud { get; }
 
     public IReadOnlyList<PortalEvent> Events() => [.. Baseline, .. Steps.Select(s => s.Event)];
 
@@ -90,7 +96,10 @@ public sealed partial class Scenario
                 actor.Device, actor.Ip, actor.Country, actor.Channel, step.Attributes ?? []));
         }).ToList();
 
-        return new Scenario(file.Name, file.Description, baseline, steps);
+        var confirmedFraud = file.ConfirmedFraud is { } decidedAt
+            ? new ConfirmedFraud(file.AccountId, decidedAt, ConfirmedFraudSource.Seed)
+            : null;
+        return new Scenario(file.Name, file.Description, baseline, steps, confirmedFraud);
     }
 
     private static TimeSpan? Offset(string text)
@@ -112,7 +121,8 @@ public sealed partial class Scenario
         string? HolderId = null,
         DateTimeOffset? Start = null,
         BaselineFile? Baseline = null,
-        Dictionary<string, Actor>? Actors = null);
+        Dictionary<string, Actor>? Actors = null,
+        DateTimeOffset? ConfirmedFraud = null);
 
     private sealed record BaselineFile(string Device, string Ip, string Country, int Weeks = 13);
 

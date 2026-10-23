@@ -592,7 +592,7 @@ public sealed class DetectorTests
             RulesV2.Rules.Where(r => r.Kind != RuleKind.Graph).Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)));
 
         Assert.Equal(
-            [("G1", 30, 0), ("G3", 20, 3)],
+            [("G1", 30, 0), ("G2", 25, 0), ("G3", 20, 3)],
             RulesV2.Rules.Where(r => r.Kind == RuleKind.Graph).Select(r => (r.Id, r.Points, r.AccountThreshold)));
     }
 }

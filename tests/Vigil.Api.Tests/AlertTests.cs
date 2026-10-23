@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Vigil.Api.Alerts;
 using Vigil.Domain.Detection;
+using Vigil.Domain.Fraud;
 
 namespace Vigil.Api.Tests;
 
@@ -183,7 +184,7 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var rules = (await _client.GetFromJsonAsync<RuleSet>("/rules", Json, Ct))!;
 
         Assert.Equal("v2", rules.Version);
-        Assert.Equal(["R0", "R1", "R2", "R3", "R4", "R5", "R6", "G1", "G3"], rules.Rules.Select(r => r.Id));
+        Assert.Equal(["R0", "R1", "R2", "R3", "R4", "R5", "R6", "G1", "G2", "G3"], rules.Rules.Select(r => r.Id));
         var r1 = Assert.Single(rules.Rules, r => r.Id == "R1");
         Assert.Equal(60, r1.WindowMinutes);
         Assert.Equal(30, r1.Points);
@@ -289,6 +290,61 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
         Assert.Equal([members[0].Register.Id, members[1].Register.Id, members[2].Register.Id], g3.EvidenceEventIds);
         Assert.Equal(Monday.AddHours(3), g3.TriggeredAt);
         Assert.Equal("Device D-RING is shared by 3 Accounts; Ring threshold 3", g3.Explanation);
+    }
+
+    private async Task<ConfirmedFraud> ConfirmFraudAsync(string accountId, DateTimeOffset decidedAt)
+    {
+        var response = await _client.PostAsJsonAsync($"/accounts/{accountId}/confirmed-fraud", new { decidedAt }, Ct);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<ConfirmedFraud>(Json, Ct))!;
+    }
+
+    [Fact]
+    public async Task An_Account_on_the_same_device_as_a_seeded_Confirmed_Fraud_Account_gets_G2()
+    {
+        var fraud = Event("ACC-G2-FRAUD", "LoginSucceeded", Monday, deviceId: "D-G2");
+        await PostAsync(fraud.Body);
+        await ConfirmFraudAsync("ACC-G2-FRAUD", Monday.AddDays(1));
+
+        var next = Event("ACC-G2-NEXT", "LoginSucceeded", Monday.AddDays(2), deviceId: "D-G2");
+        await PostAsync(next.Body);
+
+        // G2 25 alone: a lone login completes no sequence Rule and, as the Account's first event, is no First Sighting.
+        var alert = await AlertForAsync("ACC-G2-NEXT");
+        Assert.Equal(25, alert.Score);
+        AssertHit(Assert.Single(alert.Hits), "G2", 25, [fraud.Id, next.Id], "Shares Device D-G2 with Confirmed Fraud Account ACC-G2-FRAUD");
+        Assert.Equal(Monday.AddDays(2), alert.Hits[0].TriggeredAt);
+    }
+
+    [Fact]
+    public async Task Confirming_fraud_lifts_an_Account_already_on_its_device()
+    {
+        var earlier = Event("ACC-G2-EARLIER", "LoginSucceeded", Monday, deviceId: "D-G2-LATE");
+        var fraud = Event("ACC-G2-LATE-FRAUD", "LoginSucceeded", Monday.AddHours(1), deviceId: "D-G2-LATE");
+        await PostAsync(earlier.Body);
+        await PostAsync(fraud.Body);
+        Assert.DoesNotContain(await AlertsAsync(), a => a.AccountId == "ACC-G2-EARLIER");
+
+        // The decision comes after both links exist, so recording it has to re-check the fraud Account's neighbours.
+        await ConfirmFraudAsync("ACC-G2-LATE-FRAUD", Monday.AddDays(1));
+
+        var alert = await AlertForAsync("ACC-G2-EARLIER");
+        AssertHit(Assert.Single(alert.Hits), "G2", 25, [earlier.Id, fraud.Id],
+            "Shares Device D-G2-LATE with Confirmed Fraud Account ACC-G2-LATE-FRAUD");
+    }
+
+    [Fact]
+    public async Task Recording_Confirmed_Fraud_twice_keeps_the_first_decision_and_one_G2_hit()
+    {
+        await PostAsync(Event("ACC-G2-TWICE", "LoginSucceeded", Monday, deviceId: "D-G2-TWICE").Body);
+        await PostAsync(Event("ACC-G2-TWICE-NEXT", "LoginSucceeded", Monday.AddDays(1), deviceId: "D-G2-TWICE").Body);
+
+        var first = await ConfirmFraudAsync("ACC-G2-TWICE", Monday.AddDays(2));
+        var second = await ConfirmFraudAsync("ACC-G2-TWICE", Monday.AddDays(5));
+
+        Assert.Equal(new ConfirmedFraud("ACC-G2-TWICE", Monday.AddDays(2), ConfirmedFraudSource.Seed), first);
+        Assert.Equal(first, second);
+        Assert.Equal("G2", Assert.Single((await AlertForAsync("ACC-G2-TWICE-NEXT")).Hits).RuleId);
     }
 
     private async Task<AlertDetail> AlertForAsync(string accountId)

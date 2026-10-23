@@ -72,6 +72,13 @@
       "explanation": "Pays out to bank account {bankAccount}, which {account} of a different Holder also pays out to"
     },
     {
+      "id": "G2",
+      "name": "Known-fraud proximity",
+      "kind": "graph",
+      "points": 25,
+      "explanation": "Shares {identifier} {value} with Confirmed Fraud Account {account}"
+    },
+    {
       "id": "G3",
       "name": "Ring indicator",
       "kind": "graph",

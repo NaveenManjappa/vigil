@@ -18,7 +18,7 @@ public enum RuleKind
 /// </summary>
 /// <param name="Explanation">
 /// Template; a sequence rule fills in {elapsed} and {window}, a first-sighting rule fills in {sighting},
-/// G1 fills in {bankAccount} and {account}, and G3 fills in {identifier}, {value}, {accounts} and {threshold}.
+/// G1 fills in {bankAccount} and {account}, G2 fills in {identifier}, {value} and {account}, and G3 fills in {identifier}, {value}, {accounts} and {threshold}.
 /// </param>
 public sealed record Rule(
     string Id,

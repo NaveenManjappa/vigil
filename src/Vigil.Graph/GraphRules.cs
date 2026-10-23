@@ -7,12 +7,15 @@ namespace Vigil.Graph;
 /// <summary>
 /// Runs a rule set's Graph Rules for one Account against the Projection and returns candidate Rule Hits for the
 /// Detector, which decides which ones count (ADR-0014). Each Graph Rule is one short, one-hop Cypher query that
-/// reads the graph as it is now; the rules file supplies its points and explanation. It also finds a batch's
-/// Neighbours, the other Accounts whose Graph Rule Hits the batch can change.
+/// reads the graph as it is now; the rules file supplies its points and explanation. It also finds Neighbours, the
+/// other Accounts whose Graph Rule Hits a batch or a new Confirmed Fraud can change.
 /// </summary>
 public sealed class GraphRules(IDriver driver)
 {
-    private static readonly HashSet<string> Known = ["G1", "G3"];
+    private static readonly HashSet<string> Known = ["G1", "G2", "G3"];
+
+    // Passed to queries that match any relationship, so IP addresses and Addresses never link Accounts.
+    private static readonly List<string> Linking = [.. IdentifierKind.Linking.Select(kind => kind.Relationship)];
 
     /// <summary>Called at startup, so a graph rule in the rules file with no query behind it stops the API.</summary>
     public static void EnsureKnown(RuleSet ruleSet)
@@ -36,6 +39,7 @@ public sealed class GraphRules(IDriver driver)
             hits.AddRange(rule.Id switch
             {
                 "G1" => await SharedBankAccountAsync(accountId, rule, ct),
+                "G2" => await KnownFraudProximityAsync(accountId, rule, ct),
                 "G3" => await RingAsync(accountId, rule, ct),
                 _ => throw new InvalidDataException($"Rule {rule.Id}: no graph query is defined for this graph rule."),
             });
@@ -72,6 +76,23 @@ public sealed class GraphRules(IDriver driver)
         return [.. neighbours];
     }
 
+    /// <summary>
+    /// The Accounts that share a Linking Identifier with this one, sorted. Confirming an Account as fraud adds no link,
+    /// but it gives each of these G2, so recording it re-checks them (ADR-0015).
+    /// </summary>
+    public async Task<IReadOnlyList<string>> NeighboursOfAccountAsync(string accountId, CancellationToken ct)
+    {
+        var result = await driver.ExecutableQuery("""
+                MATCH (:Account {accountId: $accountId})-[mine]->()<-[]-(neighbour:Account)
+                WHERE type(mine) IN $linking
+                RETURN DISTINCT neighbour.accountId AS accountId
+                """)
+            .WithParameters(new { accountId, linking = Linking })
+            .ExecuteAsync(ct);
+
+        return [.. result.Result.Select(row => row["accountId"].As<string>()).Order(StringComparer.Ordinal)];
+    }
+
     // G1: this Account pays out to a bank account that an Account of a different Holder also pays out to.
     private const string SharedBankAccount = """
         MATCH (holder:Holder)-[:OWNS]->(:Account {accountId: $accountId})-[mine:PAYS_TO]->(bank:BankAccount)
@@ -89,18 +110,51 @@ public sealed class GraphRules(IDriver driver)
 
         return result.Result.Select(row =>
         {
-            var mine = Link(row, "mineAt", "mineEvent");
-            var theirs = Link(row, "theirsAt", "theirsEvent");
-
-            // Whichever link formed second completed the pair, so it triggers the hit and its event goes last.
-            // On a tie this Account's own event goes last, since it is the one being scored.
-            var (first, completing) = theirs.At > mine.At ? (mine, theirs) : (theirs, mine);
-
             var explanation = rule.Explanation
                 .Replace("{bankAccount}", row["bankAccount"].As<string>())
                 .Replace("{account}", row["otherAccount"].As<string>());
-            return new RuleHit(rule.Id, rule.Points, [first.EventId, completing.EventId], completing.At, explanation);
+            return PairHit(rule, row, explanation);
         }).ToList();
+    }
+
+    // G2: one of this Account's Linking Identifiers is also linked to an Account with a Confirmed Fraud Case. One hop,
+    // where PROJECT.md asked for two (ADR-0014). The decision is not an event, so the links alone set the trigger time.
+    private const string KnownFraudProximity = """
+        MATCH (:Account {accountId: $accountId})-[mine]->(identifier)<-[theirs]-(fraud:Account)
+              <-[:CONCERNS]-(:Case {outcome: 'ConfirmedFraud'})
+        WHERE type(mine) IN $linking
+        RETURN labels(identifier)[0] AS kind, identifier.value AS value, fraud.accountId AS fraudAccount,
+               mine.firstSeen AS mineAt, mine.firstEventId AS mineEvent,
+               theirs.firstSeen AS theirsAt, theirs.firstEventId AS theirsEvent
+        ORDER BY fraudAccount, kind, value
+        """;
+
+    private async Task<List<RuleHit>> KnownFraudProximityAsync(string accountId, Rule rule, CancellationToken ct)
+    {
+        var result = await driver.ExecutableQuery(KnownFraudProximity)
+            .WithParameters(new { accountId, linking = Linking })
+            .ExecuteAsync(ct);
+
+        return result.Result.Select(row =>
+        {
+            var explanation = rule.Explanation
+                .Replace("{identifier}", row["kind"].As<string>())
+                .Replace("{value}", row["value"].As<string>())
+                .Replace("{account}", row["fraudAccount"].As<string>());
+            return PairHit(rule, row, explanation);
+        }).ToList();
+    }
+
+    // G1 and G2 both pair this Account with one other through one identifier, so they share the trigger rule.
+    private static RuleHit PairHit(Rule rule, IRecord row, string explanation)
+    {
+        var mine = Link(row, "mineAt", "mineEvent");
+        var theirs = Link(row, "theirsAt", "theirsEvent");
+
+        // Whichever link formed second completed the pair, so it triggers the hit and its event goes last.
+        // On a tie this Account's own event goes last, since it is the one being scored.
+        var (first, completing) = theirs.At > mine.At ? (mine, theirs) : (theirs, mine);
+        return new RuleHit(rule.Id, rule.Points, [first.EventId, completing.EventId], completing.At, explanation);
     }
 
     // G3: one of this Account's Linking Identifiers is shared by at least the threshold number of Accounts, this one
@@ -118,9 +172,8 @@ public sealed class GraphRules(IDriver driver)
 
     private async Task<List<RuleHit>> RingAsync(string accountId, Rule rule, CancellationToken ct)
     {
-        var linking = IdentifierKind.Linking.Select(kind => kind.Relationship).ToList();
         var result = await driver.ExecutableQuery(Ring)
-            .WithParameters(new { accountId, linking, threshold = rule.AccountThreshold })
+            .WithParameters(new { accountId, linking = Linking, threshold = rule.AccountThreshold })
             .ExecuteAsync(ct);
 
         return result.Result.Select(row =>

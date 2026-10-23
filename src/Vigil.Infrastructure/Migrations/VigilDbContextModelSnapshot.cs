@@ -175,6 +175,25 @@ namespace Vigil.Infrastructure.Migrations
                     b.ToTable("events", (string)null);
                 });
 
+            modelBuilder.Entity("Vigil.Infrastructure.Fraud.StoredConfirmedFraud", b =>
+                {
+                    b.Property<string>("AccountId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("confirmed_frauds", (string)null);
+                });
+
             modelBuilder.Entity("Vigil.Infrastructure.Alerts.StoredRuleHit", b =>
                 {
                     b.HasOne("Vigil.Infrastructure.Alerts.StoredAlert", null)
@@ -186,11 +205,13 @@ namespace Vigil.Infrastructure.Migrations
 
             modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredCase", b =>
                 {
-                    b.HasOne("Vigil.Infrastructure.Alerts.StoredAlert", null)
+                    b.HasOne("Vigil.Infrastructure.Alerts.StoredAlert", "Alert")
                         .WithOne("Case")
                         .HasForeignKey("Vigil.Infrastructure.Cases.StoredCase", "AlertId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("Alert");
                 });
 
             modelBuilder.Entity("Vigil.Infrastructure.Alerts.StoredAlert", b =>

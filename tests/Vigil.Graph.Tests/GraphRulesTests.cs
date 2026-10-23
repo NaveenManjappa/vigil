@@ -1,5 +1,6 @@
 using Vigil.Domain.Detection;
 using Vigil.Domain.Events;
+using Vigil.Domain.Fraud;
 
 namespace Vigil.Graph.Tests;
 
@@ -236,6 +237,58 @@ public sealed class GraphRulesTests(Neo4jFixture neo4j) : IClassFixture<Neo4jFix
     {
         await ProjectAsync(Linked("ACC-1", Monday, device: "D-77"), Linked("ACC-2", Monday.AddDays(1), device: "D-77"));
         Assert.Single(await RingHitsAsync("ACC-2", WithRingThreshold(2)));
+    }
+
+    private Task ConfirmFraudAsync(string account, DateTimeOffset decidedAt) =>
+        _projector.ProjectConfirmedFraudAsync(new ConfirmedFraud(account, decidedAt, ConfirmedFraudSource.Seed), Ct);
+
+    private async Task<List<RuleHit>> ProximityHitsAsync(string accountId) =>
+        [.. (await _rules.HitsForAsync(accountId, V2, Ct)).Where(h => h.RuleId == "G2")];
+
+    [Fact]
+    public async Task Sharing_a_device_with_a_Confirmed_Fraud_Account_is_G2()
+    {
+        var fraud = Linked("ACC-PRIYA", Monday, device: "D-77");
+        var next = Linked("ACC-NEXT", Monday.AddDays(2), device: "D-77");
+        await ProjectAsync(fraud, next);
+        await ConfirmFraudAsync("ACC-PRIYA", Monday.AddDays(1));
+
+        var hit = Assert.Single(await ProximityHitsAsync("ACC-NEXT"));
+
+        Assert.Equal(25, hit.Points);
+        // ACC-NEXT's device link came second, so it completed the pair and comes last.
+        Assert.Equal(next.OccurredAt, hit.TriggeredAt);
+        Assert.Equal([fraud.EventId, next.EventId], hit.EvidenceEventIds);
+        Assert.Equal("Shares Device D-77 with Confirmed Fraud Account ACC-PRIYA", hit.Explanation);
+    }
+
+    [Fact]
+    public async Task Sharing_a_device_with_an_ordinary_Account_is_not_G2()
+    {
+        await ProjectAsync(Linked("ACC-1", Monday, device: "D-77"), Linked("ACC-2", Monday.AddDays(1), device: "D-77"));
+        await ConfirmFraudAsync("ACC-ELSEWHERE", Monday);
+
+        Assert.Empty(await ProximityHitsAsync("ACC-2"));
+    }
+
+    [Fact]
+    public async Task Sharing_only_an_IP_with_a_Confirmed_Fraud_Account_is_not_G2()
+    {
+        // Every BankChange comes from IP 198.51.100.1; devices and bank accounts differ.
+        await ProjectAsync(Linked("ACC-PRIYA", Monday), Linked("ACC-NEXT", Monday.AddDays(1)));
+        await ConfirmFraudAsync("ACC-PRIYA", Monday);
+
+        Assert.Empty(await ProximityHitsAsync("ACC-NEXT"));
+    }
+
+    [Fact]
+    public async Task Recording_Confirmed_Fraud_twice_gives_one_G2_hit()
+    {
+        await ProjectAsync(Linked("ACC-PRIYA", Monday, device: "D-77"), Linked("ACC-NEXT", Monday.AddDays(1), device: "D-77"));
+        await ConfirmFraudAsync("ACC-PRIYA", Monday.AddDays(1));
+        await ConfirmFraudAsync("ACC-PRIYA", Monday.AddDays(3));
+
+        Assert.Single(await ProximityHitsAsync("ACC-NEXT"));
     }
 
     [Fact]

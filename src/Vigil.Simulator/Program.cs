@@ -36,4 +36,11 @@ foreach (var scenario in scenarios)
     var body = await response.Content.ReadAsStringAsync();
     response.EnsureSuccessStatusCode();
     log.LogInformation("Posted {Scenario}: {Result}", scenario.Name, body);
+
+    if (scenario.ConfirmedFraud is { } fraud)
+    {
+        var seeded = await http.PostAsJsonAsync($"/accounts/{fraud.AccountId}/confirmed-fraud", new { fraud.DecidedAt }, json);
+        seeded.EnsureSuccessStatusCode();
+        log.LogInformation("Seeded {Account} as Confirmed Fraud, decided {DecidedAt}", fraud.AccountId, fraud.DecidedAt);
+    }
 }

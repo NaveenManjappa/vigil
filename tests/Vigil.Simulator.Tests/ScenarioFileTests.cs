@@ -1,4 +1,5 @@
 using Vigil.Domain.Events;
+using Vigil.Domain.Fraud;
 using Vigil.Simulator.Scenarios;
 
 namespace Vigil.Simulator.Tests;
@@ -9,8 +10,10 @@ public sealed class ScenarioFileTests
     private static readonly DateTimeOffset Monday = new(2026, 9, 21, 9, 0, 0, TimeSpan.Zero);
 
     // Steps are added to this so each error test changes only the part it is about.
-    private static string Json(string steps, string baseline = """{ "device": "D-1", "ip": "203.0.113.1", "country": "GB" }""") => $$"""
+    private static string Json(
+        string steps, string baseline = """{ "device": "D-1", "ip": "203.0.113.1", "country": "GB" }""", string extra = "") => $$"""
         {
+          {{extra}}
           "name": "test",
           "description": "",
           "accountId": "ACC-TEST",
@@ -105,5 +108,29 @@ public sealed class ScenarioFileTests
     public void A_misspelt_field_is_rejected_rather_than_silently_ignored()
     {
         Assert.Throws<InvalidDataException>(() => Scenario.Parse(Json("""{ "afer": "1h", "type": "PasswordReset" }"""), "test.json"));
+    }
+
+    [Fact]
+    public void A_confirmedFraud_date_marks_the_Account_as_seeded_Confirmed_Fraud()
+    {
+        var scenario = Scenario.Parse(
+            Json("""{ "after": "0m", "type": "LoginSucceeded" }""", extra: """ "confirmedFraud": "2026-09-14T12:00:00Z", """), "test.json");
+
+        Assert.Equal(
+            new ConfirmedFraud("ACC-TEST", new DateTimeOffset(2026, 9, 14, 12, 0, 0, TimeSpan.Zero), ConfirmedFraudSource.Seed),
+            scenario.ConfirmedFraud);
+    }
+
+    [Fact]
+    public void A_scenario_without_confirmedFraud_is_not_Confirmed_Fraud()
+    {
+        Assert.Null(Scenario.Parse(Json("""{ "after": "0m", "type": "LoginSucceeded" }"""), "test.json").ConfirmedFraud);
+    }
+
+    [Fact]
+    public void A_misspelt_confirmedFraud_is_rejected()
+    {
+        Assert.Throws<InvalidDataException>(() => Scenario.Parse(
+            Json("""{ "after": "0m", "type": "LoginSucceeded" }""", extra: """ "confirmedFruad": "2026-09-14T12:00:00Z", """), "test.json"));
     }
 }

@@ -5,12 +5,14 @@ using Scalar.AspNetCore;
 using Vigil.Api.Alerts;
 using Vigil.Api.Cases;
 using Vigil.Api.Events;
+using Vigil.Api.Fraud;
 using Vigil.Domain.Detection;
 using Vigil.Graph;
 using Vigil.Infrastructure;
 using Vigil.Infrastructure.Alerts;
 using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
+using Vigil.Infrastructure.Fraud;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -34,6 +36,7 @@ builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<EventStore>();
 builder.Services.AddScoped<AlertStore>();
 builder.Services.AddScoped<CaseStore>();
+builder.Services.AddScoped<ConfirmedFraudStore>();
 builder.Services.AddScoped<Ingestion>();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
@@ -59,6 +62,7 @@ app.MapDefaultEndpoints();
 app.MapEventEndpoints();
 app.MapAlertEndpoints();
 app.MapCaseEndpoints();
+app.MapConfirmedFraudEndpoints();
 
 app.Run();
 
