@@ -49,6 +49,21 @@ public sealed class InvestigatorDemoTests(ApiFactory factory) : IClassFixture<Ap
     }
 
     [Fact]
+    public async Task The_fake_Reviewer_approves_the_fake_Investigators_Finding_for_Margaret()
+    {
+        var (scope, alert) = await MargaretAsync();
+        using var _ = scope;
+        var source = scope.ServiceProvider.GetRequiredService<IInvestigationSource>();
+
+        var enrichment = await Enrichment.CreateAsync(alert, source, Ct);
+        var outcome = await scope.ServiceProvider.GetRequiredService<InvestigationLoop>().RunAsync(enrichment, Ct);
+
+        Assert.False(outcome.InvestigationFailed);
+        Assert.False(outcome.ReviewFlag);
+        Assert.Equal([Investigator.AgentId, Reviewer.AgentId], outcome.Usage.Select(u => u.AgentId));
+    }
+
+    [Fact]
     public async Task Margarets_baseline_is_her_laptop_in_GB_once_a_week_and_her_neighbourhood_has_D77()
     {
         var (scope, alert) = await MargaretAsync();

@@ -8,7 +8,7 @@ namespace Vigil.Api.Llm;
 /// <summary>
 /// The free provider for Development, tests and CI. When it is given the Investigator's tools it plays a scripted
 /// Investigator: one graph tool call, then a Finding citing the refs it was shown, so the free demo still shows tool
-/// calling in the trace. Anything else gets a fixed reply.
+/// calling in the trace. When asked for a Review it plays a Reviewer that approves. Anything else gets a fixed reply.
 /// </summary>
 public sealed partial class FakeChatClient : IChatClient
 {
@@ -24,7 +24,8 @@ public sealed partial class FakeChatClient : IChatClient
     {
         var history = messages.ToList();
         var isInvestigator = options?.Tools?.Any(t => t.Name == GraphTool) == true;
-        var reply = !isInvestigator ? new ChatMessage(ChatRole.Assistant, "Fake provider: no model was called.")
+        var reply = IsReviewer(options) ? new ChatMessage(ChatRole.Assistant, """{"approved":true,"reasons":[]}""")
+            : !isInvestigator ? new ChatMessage(ChatRole.Assistant, "Fake provider: no model was called.")
             : history.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Any() ? new ChatMessage(ChatRole.Assistant, Finding(history))
             : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("fake-call-1", GraphTool)]);
 
@@ -34,6 +35,12 @@ public sealed partial class FakeChatClient : IChatClient
             Usage = new UsageDetails { InputTokenCount = 0, OutputTokenCount = 0, TotalTokenCount = 0 },
         });
     }
+
+    // Recognised by the Review contract it is asked to fill, not by prompt wording, so a new prompt version still works.
+    private static bool IsReviewer(ChatOptions? options) =>
+        options?.ResponseFormat is ChatResponseFormatJson { Schema: { } schema }
+        && schema.TryGetProperty("properties", out var properties)
+        && properties.TryGetProperty("approved", out _);
 
     // Cites every E-ref in the brief and each graph fact that touches a Confirmed Fraud Account, so the Finding only
     // ever cites refs that exist and the code validation step passes.

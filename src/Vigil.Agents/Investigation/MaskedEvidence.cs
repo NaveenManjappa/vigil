@@ -18,10 +18,17 @@ public sealed class MaskedEvidence
         ["NewPostcode"] = IdentifierKind.Address,
     };
 
+    // Kept so the Reviewer can be shown exactly the line the Investigator saw for each ref it cited.
+    private readonly Dictionary<string, string> _lineByRef = new();
+
     public PseudonymMasker Masker { get; } = new();
     public EvidenceRefTable Refs { get; } = new();
 
     public string Mask(string text) => Masker.Mask(text);
+
+    /// <summary>The masked line each of <paramref name="evidenceRefs"/> was shown with, for those that were shown.</summary>
+    public IReadOnlyList<string> LinesFor(IEnumerable<string> evidenceRefs) =>
+        [.. evidenceRefs.Distinct().Where(_lineByRef.ContainsKey).Select(r => _lineByRef[r])];
 
     /// <summary>One line, e.g. <c>E-3 2026-09-22T09:04:00Z BankDetailsChanged account ACCOUNT-1 device DEVICE-2 ...</c>.</summary>
     public string Describe(PortalEvent e)
@@ -35,7 +42,8 @@ public sealed class MaskedEvidence
                 Masker.Register(kind, value);
 
         var attributes = string.Concat(e.Attributes.OrderBy(a => a.Key).Select(a => $" {a.Key}={a.Value}"));
-        return Mask($"{Refs.AddEvent(e.EventId)} {e.OccurredAt.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} {e.Type} account {e.AccountId} " +
+        var eventRef = Refs.AddEvent(e.EventId);
+        return Shown(eventRef, $"{eventRef} {e.OccurredAt.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ} {e.Type} account {e.AccountId} " +
                     $"holder {e.HolderId} device {e.DeviceId ?? "none"} ip {e.IpAddress ?? "none"} country {e.Country ?? "unknown"} " +
                     $"channel {e.Channel}{attributes}");
     }
@@ -51,7 +59,7 @@ public sealed class MaskedEvidence
         var others = identifier.OtherAccounts.Count == 0
             ? "is used by no other Account"
             : "is also used by " + string.Join(", ", identifier.OtherAccounts.Select(o => o.IsConfirmedFraud ? $"{o.AccountId} (Confirmed Fraud)" : o.AccountId));
-        return Mask($"{graphRef} {identifier.Kind} {identifier.Value} {others}");
+        return Shown(graphRef, $"{graphRef} {identifier.Kind} {identifier.Value} {others}");
     }
 
     public string Describe(HolderBaseline baseline)
@@ -61,6 +69,8 @@ public sealed class MaskedEvidence
         return Mask($"Usual countries: {List(baseline.UsualCountries)}. Usual devices: {List(baseline.UsualDevices)}. " +
                     $"Logins per week: {baseline.LoginsPerWeek:0.#}.");
     }
+
+    private string Shown(string evidenceRef, string line) => _lineByRef[evidenceRef] = Mask(line);
 
     // An identifier kind with no Pseudonym prefix would reach the model raw, so an unknown one stops the Investigation.
     private static IdentifierKind KindOf(string graphLabel) => graphLabel switch

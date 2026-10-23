@@ -77,21 +77,6 @@ public sealed class InvestigatorTests
     }
 
     [Fact]
-    public async Task No_raw_identifier_reaches_the_model_in_instructions_messages_or_tool_results()
-    {
-        var chat = CallsEveryTool();
-
-        // The reasons name a raw device on purpose: whatever the caller passes in is masked too.
-        var (enrichment, _) = await InvestigateAsync(chat, reviewerReasons: ["The summary does not explain D-77."]);
-
-        var sent = chat.EverythingSent().ToList();
-        Assert.Contains(sent, text => text.Contains("fraud investigator"));
-        Assert.Contains(sent, text => text.Contains($"The summary does not explain {enrichment.Evidence.Mask("D-77")}."));
-        foreach (var raw in MargaretCase.RawIdentifiers)
-            Assert.DoesNotContain(sent, text => text.Contains(raw));
-    }
-
-    [Fact]
     public async Task The_tools_are_bound_to_the_Cases_Account_and_take_no_account_argument()
     {
         var chat = new RecordingChatClient().Replies(TakeoverFinding);

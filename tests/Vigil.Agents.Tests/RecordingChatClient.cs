@@ -31,6 +31,13 @@ public sealed class RecordingChatClient : IChatClient
         return this;
     }
 
+    /// <summary>The call fails the way a provider outage or timeout does.</summary>
+    public RecordingChatClient Throws(Exception exception)
+    {
+        _script.Enqueue(() => throw exception);
+        return this;
+    }
+
     /// <summary>
     /// Every piece of text the model was given: instructions, messages, and tool calls and results. Instructions
     /// travel in <see cref="ChatOptions.Instructions"/>, not as a message, so they are read from there.
@@ -54,6 +61,8 @@ public sealed class RecordingChatClient : IChatClient
     public Task<ChatResponse> GetResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
+        // As a real provider would, so a cancelled Investigation stops at its next model call.
+        cancellationToken.ThrowIfCancellationRequested();
         Calls.Add(([.. messages], options));
         return Task.FromResult(_script.Dequeue()());
     }
