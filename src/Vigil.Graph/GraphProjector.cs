@@ -10,6 +10,10 @@ namespace Vigil.Graph;
 /// </summary>
 public sealed class GraphProjector(IDriver driver)
 {
+    // Small enough that each batch's write transaction, and each chunk of a wipe, stays a modest size in memory.
+    public const int RebuildBatchSize = 1000;
+    private const int WipeChunkSize = 10000;
+
     /// <summary>
     /// Without a uniqueness constraint, two concurrent MERGEs of the same key can both miss and both create a node.
     /// The constraint also gives MERGE an index to look the key up by. Safe to run on every start.
@@ -44,6 +48,46 @@ public sealed class GraphProjector(IDriver driver)
                 if (rows.Count > 0) await tx.RunAsync(kind.Cypher, new { rows });
             }
         });
+    }
+
+    /// <summary>
+    /// Empties Neo4j, constraints included, and projects everything again from the source of truth. Run with
+    /// ingestion stopped (ADR-0015).
+    /// </summary>
+    /// <returns>How many events were projected.</returns>
+    public async Task<int> RebuildAsync(
+        IAsyncEnumerable<PortalEvent> events, IReadOnlyCollection<ConfirmedFraud> frauds, CancellationToken ct)
+    {
+        await WipeAsync(ct);
+        await EnsureConstraintsAsync(ct);
+
+        // Projection keeps the earliest link whatever order events come in, so no ordering is needed here.
+        var projected = 0;
+        await foreach (var batch in events.Chunk(RebuildBatchSize).WithCancellation(ct))
+        {
+            await ProjectAsync(batch, ct);
+            projected += batch.Length;
+        }
+
+        // After the events, so each Case finds its Account already linked, as it does in ingestion.
+        foreach (var fraud in frauds) await ProjectConfirmedFraudAsync(fraud, ct);
+        return projected;
+    }
+
+    // Constraints are dropped too, so a rebuild after the projection model changes leaves none for old labels.
+    private async Task WipeAsync(CancellationToken ct)
+    {
+        // One DETACH DELETE of the whole graph would hold every deletion in memory until commit. IN TRANSACTIONS deletes
+        // in chunks, but only runs in an auto-commit transaction, which session.RunAsync gives and ExecutableQuery does not.
+        await using (var session = driver.AsyncSession())
+        {
+            var cursor = await session.RunAsync($"MATCH (n) CALL (n) {{ DETACH DELETE n }} IN TRANSACTIONS OF {WipeChunkSize} ROWS");
+            await cursor.ConsumeAsync();
+        }
+
+        var constraints = await driver.ExecutableQuery("SHOW CONSTRAINTS YIELD name").ExecuteAsync(ct);
+        foreach (var row in constraints.Result)
+            await driver.ExecutableQuery($"DROP CONSTRAINT `{row["name"].As<string>()}`").ExecuteAsync(ct);
     }
 
     /// <summary>

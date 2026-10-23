@@ -6,6 +6,7 @@ using Vigil.Api.Alerts;
 using Vigil.Api.Cases;
 using Vigil.Api.Events;
 using Vigil.Api.Fraud;
+using Vigil.Api.Graph;
 using Vigil.Domain.Detection;
 using Vigil.Graph;
 using Vigil.Infrastructure;
@@ -38,6 +39,7 @@ builder.Services.AddScoped<AlertStore>();
 builder.Services.AddScoped<CaseStore>();
 builder.Services.AddScoped<ConfirmedFraudStore>();
 builder.Services.AddScoped<Ingestion>();
+builder.Services.AddScoped<GraphRebuild>();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -51,6 +53,14 @@ if (app.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
 }
 
 await app.Services.GetRequiredService<GraphProjector>().EnsureConstraintsAsync(CancellationToken.None);
+
+// `rebuild-graph` reuses the API's configuration and services, then exits instead of serving (ADR-0015).
+if (args is ["rebuild-graph"])
+{
+    using var scope = app.Services.CreateScope();
+    await scope.ServiceProvider.GetRequiredService<GraphRebuild>().RunAsync(CancellationToken.None);
+    return;
+}
 
 if (app.Environment.IsDevelopment())
 {

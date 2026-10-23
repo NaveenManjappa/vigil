@@ -35,11 +35,13 @@ internal sealed record IdentifierKind(string Label, string Relationship, bool Is
 
     // Events can arrive late (detection orders by OccurredAt, not arrival), so a later projection may carry an earlier time.
     // firstEventId is the event that made the link, which Graph Rules cite as evidence. It is set before firstSeen
-    // because SET applies its items in order, and the comparison must see the old firstSeen.
+    // because SET applies its items in order, and the comparison must see the old firstSeen. On a tie the lower
+    // EventId wins rather than the first to arrive, so a rebuild, which replays in a different order, cites the same event.
     internal const string KeepEarliestLink = """
 
           ON CREATE SET r.firstSeen = row.at, r.firstEventId = row.eventId
-          ON MATCH SET r.firstEventId = CASE WHEN row.at < r.firstSeen THEN row.eventId ELSE r.firstEventId END,
+          ON MATCH SET r.firstEventId = CASE WHEN row.at < r.firstSeen OR (row.at = r.firstSeen AND row.eventId < r.firstEventId)
+                                             THEN row.eventId ELSE r.firstEventId END,
                        r.firstSeen = CASE WHEN row.at < r.firstSeen THEN row.at ELSE r.firstSeen END
         """;
 }

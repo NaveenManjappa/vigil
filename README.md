@@ -69,6 +69,18 @@ services__api__http__0=http://localhost:5107 dotnet run --project src/Vigil.Simu
 
 Files kept in `scenarios/` are copied beside the simulator at build time, so they are posted by the dashboard's Start button after the next AppHost restart.
 
+### Rebuild the graph
+
+Neo4j holds a disposable Projection of Postgres. If Neo4j data is lost (for example, the `vigil-neo4j-data` volume is deleted) or the projection model changes, rebuild it: click **Start** on the `rebuild-graph` resource in the dashboard. It wipes Neo4j, recreates the constraints, re-projects every Portal Event and Confirmed Fraud from Postgres, then exits. Don't run the simulator during a rebuild: an event scored against a half-built graph misses its graph Rule Hits.
+
+From the command line, it is the API binary run with `rebuild-graph`. Outside Aspire, give it the connection details. Copy them from the `api` resource's environment variables in the dashboard:
+
+```bash
+ConnectionStrings__vigil="Host=localhost;Port=<port>;Database=vigil;Username=postgres;Password=<password>" \
+Neo4j__Uri=bolt://localhost:7687 Neo4j__Password=<password> \
+dotnet run --project src/Vigil.Api -- rebuild-graph
+```
+
 Neo4j Browser: http://localhost:7474 (user `neo4j`, password in the AppHost's user-secrets: `dotnet user-secrets list --project src/Vigil.AppHost`).
 
 ## Tests

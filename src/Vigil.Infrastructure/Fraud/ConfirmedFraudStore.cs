@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using Vigil.Domain.Fraud;
 
 namespace Vigil.Infrastructure.Fraud;
@@ -16,4 +17,7 @@ public sealed class ConfirmedFraudStore(VigilDbContext db)
         await db.SaveChangesAsync(ct);
         return fraud;
     }
+
+    public async Task<IReadOnlyList<ConfirmedFraud>> AllAsync(CancellationToken ct = default) =>
+        (await db.ConfirmedFrauds.AsNoTracking().ToListAsync(ct)).Select(f => f.ToDomain()).ToList();
 }

@@ -139,6 +139,32 @@ public sealed class GraphProjectorTests(Neo4jFixture neo4j) : IClassFixture<Neo4
         Assert.Equal(Monday, await FirstSeenAsync("USED_DEVICE", "D-77"));
     }
 
+    [Fact]
+    public async Task Two_events_at_the_same_moment_set_the_same_firstEventId_in_either_order()
+    {
+        // A rebuild replays events in a different order from the one they arrived in, and must cite the same evidence.
+        var one = Event(EventType.LoginSucceeded, Monday, device: "D-77") with { EventId = Guid.Parse("11111111-0000-0000-0000-000000000000") };
+        var two = Event(EventType.LoginSucceeded, Monday, device: "D-77") with { EventId = Guid.Parse("22222222-0000-0000-0000-000000000000") };
+
+        await _projector.ProjectAsync([two], Ct);
+        await _projector.ProjectAsync([one], Ct);
+        var afterTwoThenOne = await FirstEventIdAsync("USED_DEVICE", "D-77");
+
+        await InitializeAsync(); // empties the graph again
+        await _projector.ProjectAsync([one], Ct);
+        await _projector.ProjectAsync([two], Ct);
+
+        Assert.Equal(afterTwoThenOne, await FirstEventIdAsync("USED_DEVICE", "D-77"));
+    }
+
+    private async Task<string> FirstEventIdAsync(string relationship, string value)
+    {
+        var result = await neo4j.Driver.ExecutableQuery($"MATCH (:Account)-[r:{relationship}]->({{value: $value}}) RETURN r.firstEventId AS firstEventId")
+            .WithParameters(new { value })
+            .ExecuteAsync(Ct);
+        return Assert.Single(result.Result)["firstEventId"].As<string>();
+    }
+
     [Theory]
     [InlineData("Account", "accountId")]
     [InlineData("Holder", "holderId")]

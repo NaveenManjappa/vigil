@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using Vigil.Domain.Events;
@@ -42,6 +43,27 @@ public sealed class EventStore(VigilDbContext db, TimeProvider clock)
         await db.SaveChangesAsync(ct);
 
         return new AppendResult(fresh.Count, events.Count - fresh.Count);
+    }
+
+    /// <summary>Every stored event, in pages, for rebuilding the graph (ADR-0015).</summary>
+    public async IAsyncEnumerable<PortalEvent> AllAsync(int pageSize, [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        // Paged by EventId rather than one streamed query: Aspire's retrying execution strategy buffers a whole query's
+        // results so it can replay them, which for the whole table would hold every event in memory.
+        Guid? after = null;
+        while (true)
+        {
+            var page = await db.Events
+                .AsNoTracking()
+                .Where(e => after == null || e.EventId.CompareTo(after.Value) > 0)
+                .OrderBy(e => e.EventId)
+                .Take(pageSize)
+                .ToListAsync(ct);
+
+            foreach (var stored in page) yield return stored.ToDomain();
+            if (page.Count < pageSize) yield break;
+            after = page[^1].EventId;
+        }
     }
 
     /// <summary>In OccurredAt order, never arrival order, because detection scores an event where it happened (PROJECT.md Section 7.4).</summary>
