@@ -66,6 +66,18 @@ public sealed class EventStore(VigilDbContext db, TimeProvider clock)
         }
     }
 
+    /// <summary>The events with these EventIds, on any Account, in OccurredAt order; unknown ids are skipped.</summary>
+    public async Task<IReadOnlyList<PortalEvent>> GetManyAsync(IReadOnlyCollection<Guid> eventIds, CancellationToken ct = default)
+    {
+        var stored = await db.Events
+            .AsNoTracking()
+            .Where(e => eventIds.Contains(e.EventId))
+            .OrderBy(e => e.OccurredAt).ThenBy(e => e.EventId)
+            .ToListAsync(ct);
+
+        return stored.Select(e => e.ToDomain()).ToList();
+    }
+
     /// <summary>In OccurredAt order, never arrival order, because detection scores an event where it happened (PROJECT.md Section 7.4).</summary>
     public async Task<IReadOnlyList<PortalEvent>> GetTimelineAsync(string accountId, CancellationToken ct = default)
     {

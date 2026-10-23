@@ -11,6 +11,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The file name is the Prompt Version, so the resource is named after it. -->
+    <EmbeddedResource Include="..\..\config\prompts\*.md" LogicalName="prompts.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Vigil.Domain\Vigil.Domain.csproj" />
   </ItemGroup>
 

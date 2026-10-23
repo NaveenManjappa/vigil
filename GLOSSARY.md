@@ -96,6 +96,10 @@ _Avoid_: shared attribute, key, identifier (alone, when IP and Address are exclu
 An Account outside an ingested batch that shares a Linking Identifier with one of the batch's events, or an Account that shares one with a newly recorded Confirmed Fraud Account. A new link or a new Confirmed Fraud can change its Graph Rule Hits, so ingestion re-checks it in the same request (ADR-0015).
 _Avoid_: related account, connected account (a Ring is a different, larger thing)
 
+**Neighbourhood**:
+What the Projection knows about one Account's links, one hop out: each of its Linking Identifiers, the other Accounts on each, and whether each of those is Confirmed Fraud. The Investigator reads it through its graph tool (ADR-0007).
+_Avoid_: subgraph, network, Neighbour (a Neighbour is an Account ingestion re-checks)
+
 **Graph Rule**:
 A Rule that matches links between Accounts in the Projection rather than events on one Account, written as one short, one-hop Cypher query: G1 Shared bank account, where an Account pays out to a BankAccount that another Holder's Account also pays out to; G2 Known-fraud proximity, where it shares a Linking Identifier with a Confirmed Fraud Account; and G3 Ring indicator, where the Account is in a Ring. It reads the graph as it is now and returns candidate Rule Hits that the Detector places in Risk Episodes like any other. Its trigger time is the OccurredAt of the event that completed the link, and its evidence is the linking events on every Account involved, with that event last (ADR-0014).
 _Avoid_: graph feature, graph check, network rule

@@ -1,27 +1,64 @@
 using System.Runtime.CompilerServices;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 
 namespace Vigil.Api.Llm;
 
 /// <summary>
-/// The free provider for Development, tests and CI: answers every call with a fixed reply and token counts, so the
-/// pipeline and its token logging behave as with a real model. Stage 3.4 replaces the reply with the scripted
-/// Investigator and Reviewer.
+/// The free provider for Development, tests and CI. When it is given the Investigator's tools it plays a scripted
+/// Investigator: one graph tool call, then a Finding citing the refs it was shown, so the free demo still shows tool
+/// calling in the trace. Anything else gets a fixed reply.
 /// </summary>
-public sealed class FakeChatClient : IChatClient
+public sealed partial class FakeChatClient : IChatClient
 {
     public const string ProviderName = "fake";
     public const string ModelId = "fake-model";
 
+    private const string GraphTool = "QueryGraphNeighbourhood";
+
     private static readonly ChatClientMetadata Metadata = new(ProviderName, providerUri: null, defaultModelId: ModelId);
 
     public Task<ChatResponse> GetResponseAsync(
-        IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default) =>
-        Task.FromResult(new ChatResponse(new ChatMessage(ChatRole.Assistant, "Fake provider: no model was called."))
+        IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+    {
+        var history = messages.ToList();
+        var isInvestigator = options?.Tools?.Any(t => t.Name == GraphTool) == true;
+        var reply = !isInvestigator ? new ChatMessage(ChatRole.Assistant, "Fake provider: no model was called.")
+            : history.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Any() ? new ChatMessage(ChatRole.Assistant, Finding(history))
+            : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("fake-call-1", GraphTool)]);
+
+        return Task.FromResult(new ChatResponse(reply)
         {
             ModelId = ModelId,
             Usage = new UsageDetails { InputTokenCount = 0, OutputTokenCount = 0, TotalTokenCount = 0 },
         });
+    }
+
+    // Cites every E-ref in the brief and each graph fact that touches a Confirmed Fraud Account, so the Finding only
+    // ever cites refs that exist and the code validation step passes.
+    private static string Finding(List<ChatMessage> history)
+    {
+        var brief = history.First(m => m.Role == ChatRole.User).Text;
+        var graphFacts = history.SelectMany(m => m.Contents).OfType<FunctionResultContent>()
+            .SelectMany(r => (r.Result?.ToString() ?? "").Split('\n'))
+            .Where(line => line.Contains("Confirmed Fraud"));
+        var evidence = EvidenceRef().Matches(brief).Concat(graphFacts.Select(line => EvidenceRef().Match(line)))
+            .Where(m => m.Success).Select(m => m.Value).Distinct().ToList();
+
+        return JsonSerializer.Serialize(new
+        {
+            verdict = "LikelyAccountTakeover",
+            confidence = "High",
+            summary = "Scripted Finding from the Fake provider: the flagged activity came from a device and country the " +
+                      "Holder does not use, and that device is shared with a Confirmed Fraud Account.",
+            recommendation = "BlockBankChanges",
+            evidence,
+        });
+    }
+
+    [GeneratedRegex(@"\b[EG]-\d+\b")]
+    private static partial Regex EvidenceRef();
 
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null,
@@ -32,9 +69,8 @@ public sealed class FakeChatClient : IChatClient
     }
 
     public object? GetService(Type serviceType, object? serviceKey = null) =>
-        serviceKey is not null ? null
-        : serviceType == typeof(ChatClientMetadata) ? Metadata
-        : serviceType.IsInstanceOfType(this) ? this
+        serviceKey is null && serviceType == typeof(ChatClientMetadata) ? Metadata
+        : serviceKey is null && serviceType.IsInstanceOfType(this) ? this
         : null;
 
     public void Dispose() { }
