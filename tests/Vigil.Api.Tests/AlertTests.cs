@@ -14,7 +14,9 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
     private readonly HttpClient _client = factory.CreateClient();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static (Guid Id, object Body) Event(string accountId, string type, DateTimeOffset at, Dictionary<string, string>? attributes = null)
+    // Each Account has its own device unless one is given, so G3 does not join every Account in the class into one Ring.
+    private static (Guid Id, object Body) Event(
+        string accountId, string type, DateTimeOffset at, Dictionary<string, string>? attributes = null, string? deviceId = null)
     {
         var id = Guid.NewGuid();
         return (id, new
@@ -24,7 +26,7 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
             holderId = $"HOLDER-{accountId}",
             type,
             occurredAt = at,
-            deviceId = "D-77",
+            deviceId = deviceId ?? $"D-{accountId}",
             ipAddress = "198.51.100.77",
             country = "RO",
             channel = "web",
@@ -181,13 +183,16 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
         var rules = (await _client.GetFromJsonAsync<RuleSet>("/rules", Json, Ct))!;
 
         Assert.Equal("v2", rules.Version);
-        Assert.Equal(["R0", "R1", "R2", "R3", "R4", "R5", "R6", "G1"], rules.Rules.Select(r => r.Id));
+        Assert.Equal(["R0", "R1", "R2", "R3", "R4", "R5", "R6", "G1", "G3"], rules.Rules.Select(r => r.Id));
         var r1 = Assert.Single(rules.Rules, r => r.Id == "R1");
         Assert.Equal(60, r1.WindowMinutes);
         Assert.Equal(30, r1.Points);
         var g1 = Assert.Single(rules.Rules, r => r.Id == "G1");
         Assert.Equal(RuleKind.Graph, g1.Kind);
         Assert.Equal(30, g1.Points);
+        var g3 = Assert.Single(rules.Rules, r => r.Id == "G3");
+        Assert.Equal(20, g3.Points);
+        Assert.Equal(3, g3.AccountThreshold);
     }
 
     [Fact]
@@ -250,6 +255,40 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         Assert.Equal("G1", Assert.Single((await AlertForAsync("ACC-RACE-A")).Hits).RuleId);
         Assert.Equal("G1", Assert.Single((await AlertForAsync("ACC-RACE-B")).Hits).RuleId);
+    }
+
+    [Fact]
+    public async Task Every_member_of_a_five_Account_Ring_reaches_High()
+    {
+        // The Ring Persona: each Account registers on one device and pays out to one bank account, an hour apart.
+        var bankAccount = new Dictionary<string, string> { ["NewBankAccountHash"] = "BA-RING" };
+        var members = Enumerable.Range(1, 5).Select(i =>
+        {
+            var account = $"ACC-RING-{i}";
+            var at = Monday.AddHours(i);
+            return (Register: Event(account, "AccountRegistered", at, deviceId: "D-RING"),
+                    Bank: Event(account, "BankDetailsChanged", at.AddMinutes(30), bankAccount, deviceId: "D-RING"));
+        }).ToList();
+
+        foreach (var member in members) await PostAsync(member.Register.Body, member.Bank.Body);
+
+        // R5 30 on each Account alone is Medium; G1 30 and G3 20 lift every member to 80, High, including the first
+        // two, which the neighbour re-check reaches when later members link.
+        for (var i = 1; i <= 5; i++)
+        {
+            var alert = await AlertForAsync($"ACC-RING-{i}");
+            Assert.Equal(["G1", "G3", "R5"], alert.Hits.Select(h => h.RuleId).Order());
+            Assert.Equal(80, alert.Score);
+            Assert.Equal(RiskBand.High, alert.Band);
+        }
+
+        // The first member joined a Ring when the third registered on D-RING, before the bank account reached three.
+        // A stored hit is never rewritten, so its explanation keeps the count from when it was made.
+        var first = await AlertForAsync("ACC-RING-1");
+        var g3 = Assert.Single(first.Hits, h => h.RuleId == "G3");
+        Assert.Equal([members[0].Register.Id, members[1].Register.Id, members[2].Register.Id], g3.EvidenceEventIds);
+        Assert.Equal(Monday.AddHours(3), g3.TriggeredAt);
+        Assert.Equal("Device D-RING is shared by 3 Accounts; Ring threshold 3", g3.Explanation);
     }
 
     private async Task<AlertDetail> AlertForAsync(string accountId)

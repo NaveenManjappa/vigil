@@ -146,11 +146,109 @@ public sealed class GraphRulesTests(Neo4jFixture neo4j) : IClassFixture<Neo4jFix
         Assert.Equal(["ACC-BANK", "ACC-DEVICE", "ACC-EMAIL", "ACC-PHONE"], await _rules.NeighboursOfAsync(batch, Ct));
     }
 
+    // Each Account gets its own bank account unless one is given, so only the device links them.
+    private static PortalEvent Linked(string account, DateTimeOffset at, string? device = null, string? bankAccount = null) =>
+        BankChange(account, at, bankAccount ?? $"BA-{account}") with { DeviceId = device ?? $"D-{account}" };
+
+    private async Task<List<RuleHit>> RingHitsAsync(string accountId, RuleSet? ruleSet = null) =>
+        [.. (await _rules.HitsForAsync(accountId, ruleSet ?? V2, Ct)).Where(h => h.RuleId == "G3")];
+
+    private static RuleSet WithRingThreshold(int threshold) =>
+        V2 with { Rules = [.. V2.Rules.Select(r => r.Id == "G3" ? r with { AccountThreshold = threshold } : r)] };
+
+    [Fact]
+    public async Task A_device_shared_by_three_Accounts_is_G3_for_the_third()
+    {
+        var one = Linked("ACC-1", Monday, device: "D-77");
+        var two = Linked("ACC-2", Monday.AddDays(1), device: "D-77");
+        var three = Linked("ACC-3", Monday.AddDays(2), device: "D-77");
+        await ProjectAsync(one, two, three);
+
+        var hit = Assert.Single(await RingHitsAsync("ACC-3"));
+
+        Assert.Equal(20, hit.Points);
+        // ACC-3's link brought D-77 to the threshold of 3, so it is the trigger and comes last.
+        Assert.Equal(three.OccurredAt, hit.TriggeredAt);
+        Assert.Equal([one.EventId, two.EventId, three.EventId], hit.EvidenceEventIds);
+        Assert.Equal("Device D-77 is shared by 3 Accounts; Ring threshold 3", hit.Explanation);
+    }
+
+    [Fact]
+    public async Task A_bank_account_shared_by_three_Accounts_is_G3()
+    {
+        var one = Linked("ACC-1", Monday, bankAccount: "BA-9f31");
+        var two = Linked("ACC-2", Monday.AddDays(1), bankAccount: "BA-9f31");
+        var three = Linked("ACC-3", Monday.AddDays(2), bankAccount: "BA-9f31");
+        await ProjectAsync(one, two, three);
+
+        var hit = Assert.Single(await RingHitsAsync("ACC-3"));
+
+        Assert.Equal([one.EventId, two.EventId, three.EventId], hit.EvidenceEventIds);
+        Assert.Equal("BankAccount BA-9f31 is shared by 3 Accounts; Ring threshold 3", hit.Explanation);
+    }
+
+    [Fact]
+    public async Task A_device_or_bank_account_shared_by_two_Accounts_is_not_G3()
+    {
+        await ProjectAsync(
+            Linked("ACC-1", Monday, device: "D-77", bankAccount: "BA-9f31"),
+            Linked("ACC-2", Monday.AddDays(1), device: "D-77", bankAccount: "BA-9f31"));
+
+        Assert.Empty(await RingHitsAsync("ACC-2"));
+    }
+
+    [Fact]
+    public async Task A_shared_IP_or_Address_alone_is_never_G3()
+    {
+        // Every BankChange comes from IP 198.51.100.1; the postcode is added on top. Devices and bank accounts all differ.
+        var postcode = Attribute("NewPostcode", "EC1A 1BB");
+        await ProjectAsync(
+            Linked("ACC-1", Monday) with { Attributes = postcode },
+            Linked("ACC-2", Monday.AddDays(1)) with { Attributes = postcode },
+            Linked("ACC-3", Monday.AddDays(2)) with { Attributes = postcode });
+
+        Assert.Empty(await RingHitsAsync("ACC-3"));
+    }
+
+    [Fact]
+    public async Task Every_Account_on_the_identifier_is_G3_once_the_threshold_is_reached()
+    {
+        var one = Linked("ACC-1", Monday, device: "D-77");
+        var two = Linked("ACC-2", Monday.AddDays(1), device: "D-77");
+        var three = Linked("ACC-3", Monday.AddDays(2), device: "D-77");
+        var four = Linked("ACC-4", Monday.AddDays(3), device: "D-77");
+        await ProjectAsync(one, two, three, four);
+
+        // ACC-1 was on D-77 first, so the third link triggers its hit.
+        var first = Assert.Single(await RingHitsAsync("ACC-1"));
+        Assert.Equal(three.OccurredAt, first.TriggeredAt);
+        Assert.Equal([one.EventId, two.EventId, three.EventId], first.EvidenceEventIds);
+        Assert.Equal("Device D-77 is shared by 4 Accounts; Ring threshold 3", first.Explanation);
+
+        // ACC-4 joined a group already at the threshold, so its own link triggers it.
+        var fourth = Assert.Single(await RingHitsAsync("ACC-4"));
+        Assert.Equal(four.OccurredAt, fourth.TriggeredAt);
+        Assert.Equal([one.EventId, two.EventId, four.EventId], fourth.EvidenceEventIds);
+    }
+
+    [Fact]
+    public async Task The_Ring_threshold_comes_from_the_rules_file()
+    {
+        await ProjectAsync(Linked("ACC-1", Monday, device: "D-77"), Linked("ACC-2", Monday.AddDays(1), device: "D-77"));
+        Assert.Single(await RingHitsAsync("ACC-2", WithRingThreshold(2)));
+    }
+
     [Fact]
     public void A_graph_rule_with_no_query_behind_it_is_rejected()
     {
         var unknown = V2 with { Rules = [.. V2.Rules, new Rule("G9", "Unknown", RuleKind.Graph, 10, "x")] };
 
         Assert.Throws<InvalidDataException>(() => GraphRules.EnsureKnown(unknown));
+    }
+
+    [Fact]
+    public void A_Ring_threshold_below_two_is_rejected()
+    {
+        Assert.Throws<InvalidDataException>(() => GraphRules.EnsureKnown(WithRingThreshold(1)));
     }
 }

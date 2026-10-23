@@ -18,7 +18,7 @@ public enum RuleKind
 /// </summary>
 /// <param name="Explanation">
 /// Template; a sequence rule fills in {elapsed} and {window}, a first-sighting rule fills in {sighting},
-/// and G1 fills in {bankAccount} and {account}.
+/// G1 fills in {bankAccount} and {account}, and G3 fills in {identifier}, {value}, {accounts} and {threshold}.
 /// </param>
 public sealed record Rule(
     string Id,
@@ -30,6 +30,9 @@ public sealed record Rule(
     public IReadOnlyList<IReadOnlyList<EventType>> Steps { get; init; } = [];
 
     public int WindowMinutes { get; init; }
+
+    /// <summary>G3 only: how many Accounts must share one Linking Identifier before it counts as a Ring.</summary>
+    public int AccountThreshold { get; init; }
 
     [JsonIgnore]
     public TimeSpan Window => TimeSpan.FromMinutes(WindowMinutes);

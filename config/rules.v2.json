@@ -70,6 +70,14 @@
       "kind": "graph",
       "points": 30,
       "explanation": "Pays out to bank account {bankAccount}, which {account} of a different Holder also pays out to"
+    },
+    {
+      "id": "G3",
+      "name": "Ring indicator",
+      "kind": "graph",
+      "accountThreshold": 3,
+      "points": 20,
+      "explanation": "{identifier} {value} is shared by {accounts} Accounts; Ring threshold {threshold}"
     }
   ]
 }

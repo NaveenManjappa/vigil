@@ -97,5 +97,9 @@ An Account outside an ingested batch that shares a Linking Identifier with one o
 _Avoid_: related account, connected account (a Ring is a different, larger thing)
 
 **Graph Rule**:
-A Rule that matches links between Accounts in the Projection rather than events on one Account, written as one short, one-hop Cypher query: G1 Shared bank account, where an Account pays out to a BankAccount that another Holder's Account also pays out to. It reads the graph as it is now and returns candidate Rule Hits that the Detector places in Risk Episodes like any other. Its trigger time is the OccurredAt of the event that completed the link, and its evidence is the linking events on every Account involved, with that event last (ADR-0014).
+A Rule that matches links between Accounts in the Projection rather than events on one Account, written as one short, one-hop Cypher query: G1 Shared bank account, where an Account pays out to a BankAccount that another Holder's Account also pays out to, and G3 Ring indicator, where the Account is in a Ring. It reads the graph as it is now and returns candidate Rule Hits that the Detector places in Risk Episodes like any other. Its trigger time is the OccurredAt of the event that completed the link, and its evidence is the linking events on every Account involved, with that event last (ADR-0014).
 _Avoid_: graph feature, graph check, network rule
+
+**Ring**:
+A group of at least the rules file's `accountThreshold` (3) Accounts that share one Linking Identifier, such as one device or one bank account; G3 scores each member. Only Accounts on the same identifier count, not a group joined through a chain of different identifiers (ADR-0014). An Account's Holder does not matter, so a Holder's own Accounts can form one. A G3 hit's evidence is the earliest links that brought the group, with this Account in it, to the threshold.
+_Avoid_: gang, cluster, network, connected component (a component would follow links through any number of hops)

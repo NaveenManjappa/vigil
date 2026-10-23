@@ -582,16 +582,17 @@ public sealed class DetectorTests
     }
 
     [Fact]
-    public void Rules_v2_is_v1_unchanged_plus_the_graph_rule_G1()
+    public void Rules_v2_is_v1_unchanged_plus_the_graph_rules()
     {
         // v1 stays as it was, so Alerts stamped v1 can still be reproduced.
         Assert.Equal("v2", RulesV2.Version);
         Assert.Equal((Rules.RiskPeriodDays, Rules.Bands), (RulesV2.RiskPeriodDays, RulesV2.Bands));
         Assert.Equal(
             Rules.Rules.Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)),
-            RulesV2.Rules.SkipLast(1).Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)));
+            RulesV2.Rules.Where(r => r.Kind != RuleKind.Graph).Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)));
 
-        var g1 = RulesV2.Rules[^1];
-        Assert.Equal(("G1", RuleKind.Graph, 30), (g1.Id, g1.Kind, g1.Points));
+        Assert.Equal(
+            [("G1", 30, 0), ("G3", 20, 3)],
+            RulesV2.Rules.Where(r => r.Kind == RuleKind.Graph).Select(r => (r.Id, r.Points, r.AccountThreshold)));
     }
 }
