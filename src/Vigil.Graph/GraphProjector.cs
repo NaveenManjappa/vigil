@@ -50,10 +50,11 @@ public sealed class GraphProjector(IDriver driver)
         MERGE (h:Holder {holderId: row.holderId})
         MERGE (a:Account {accountId: row.accountId})
         MERGE (h)-[r:OWNS]->(a)
-        """ + IdentifierKind.KeepEarliestFirstSeen;
+        """ + IdentifierKind.KeepEarliestLink;
 
     private static Dictionary<string, object?> Row(PortalEvent e, string? value) => new()
     {
+        ["eventId"] = e.EventId.ToString(),
         ["accountId"] = e.AccountId,
         ["holderId"] = e.HolderId,
         ["at"] = e.OccurredAt,

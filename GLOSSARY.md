@@ -41,7 +41,7 @@ A seeded, reproducible set of generated Accounts, each with its Portal Events an
 _Avoid_: corpus, test data, fixture
 
 **Rule**:
-A named pattern of Portal Events on one Account that suggests fraud, worth a fixed number of points when it matches. A sequence Rule is two steps, A then B, inside a Window; each step may list alternative event types. A first-sighting Rule (R0) matches a First Sighting and has no steps or Window.
+A named pattern that suggests fraud, worth a fixed number of points when it matches. It is one of three kinds. A sequence Rule is two steps on one Account, A then B, inside a Window; each step may list alternative event types. A first-sighting Rule (R0) matches a First Sighting and has no steps or Window. A graph Rule (a Graph Rule, such as G1) matches links between Accounts in the Projection and has no steps or Window.
 _Avoid_: check, detector, signal
 
 **First Sighting**:
@@ -91,3 +91,7 @@ _Avoid_: graph database (as the store of record), sync, mirror
 **Linking Identifier**:
 An identifier whose reuse across Accounts suggests one person or gang behind them: Device, BankAccount, Email and Phone. IP addresses and postal Addresses are projected for exploration but never link, because households, offices and mobile carriers share them innocently.
 _Avoid_: shared attribute, key, identifier (alone, when IP and Address are excluded)
+
+**Graph Rule**:
+A Rule that matches links between Accounts in the Projection rather than events on one Account, written as one short, one-hop Cypher query: G1 Shared bank account, where an Account pays out to a BankAccount that another Holder's Account also pays out to. It reads the graph as it is now and returns candidate Rule Hits that the Detector places in Risk Episodes like any other. Its trigger time is the OccurredAt of the event that completed the link, and its evidence is the linking events on every Account involved, with that event last (ADR-0014).
+_Avoid_: graph feature, graph check, network rule

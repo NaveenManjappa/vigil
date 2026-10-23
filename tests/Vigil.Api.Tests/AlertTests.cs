@@ -14,7 +14,7 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
     private readonly HttpClient _client = factory.CreateClient();
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private static (Guid Id, object Body) Event(string accountId, string type, DateTimeOffset at)
+    private static (Guid Id, object Body) Event(string accountId, string type, DateTimeOffset at, Dictionary<string, string>? attributes = null)
     {
         var id = Guid.NewGuid();
         return (id, new
@@ -28,6 +28,7 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
             ipAddress = "198.51.100.77",
             country = "RO",
             channel = "web",
+            attributes,
         });
     }
 
@@ -51,7 +52,7 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
         Assert.Equal(30, alert.Score);
         Assert.Equal(RiskBand.Medium, alert.Band);
-        Assert.Equal("v1", alert.RulesVersion);
+        Assert.Equal("v2", alert.RulesVersion);
         var hit = Assert.Single(alert.Hits);
         Assert.Equal("R1", hit.RuleId);
         Assert.Equal(30, hit.Points);
@@ -179,10 +180,36 @@ public sealed class AlertTests(ApiFactory factory) : IClassFixture<ApiFactory>
     {
         var rules = (await _client.GetFromJsonAsync<RuleSet>("/rules", Json, Ct))!;
 
-        Assert.Equal("v1", rules.Version);
-        Assert.Equal(["R0", "R1", "R2", "R3", "R4", "R5", "R6"], rules.Rules.Select(r => r.Id));
+        Assert.Equal("v2", rules.Version);
+        Assert.Equal(["R0", "R1", "R2", "R3", "R4", "R5", "R6", "G1"], rules.Rules.Select(r => r.Id));
         var r1 = Assert.Single(rules.Rules, r => r.Id == "R1");
         Assert.Equal(60, r1.WindowMinutes);
         Assert.Equal(30, r1.Points);
+        var g1 = Assert.Single(rules.Rules, r => r.Id == "G1");
+        Assert.Equal(RuleKind.Graph, g1.Kind);
+        Assert.Equal(30, g1.Points);
+    }
+
+    [Fact]
+    public async Task The_second_Account_to_pay_out_to_another_Holders_bank_account_gets_G1()
+    {
+        var bankAccount = new Dictionary<string, string> { ["NewBankAccountHash"] = "BA-SHARED-G1" };
+        var first = Event("ACC-G1-FIRST", "BankDetailsChanged", Monday, bankAccount);
+        var second = Event("ACC-G1-SECOND", "BankDetailsChanged", Monday.AddDays(1), bankAccount);
+
+        await PostAsync(first.Body);
+        await PostAsync(second.Body);
+
+        var summary = Assert.Single(await AlertsAsync(), a => a.AccountId == "ACC-G1-SECOND");
+        var alert = (await _client.GetFromJsonAsync<AlertDetail>($"/alerts/{summary.Id}", Json, Ct))!;
+
+        // G1 30 alone: a lone bank change completes no sequence Rule and, as the Account's first event, is no First Sighting.
+        Assert.Equal(30, alert.Score);
+        Assert.Equal(RiskBand.Medium, alert.Band);
+        Assert.Equal("v2", alert.RulesVersion);
+        var hit = Assert.Single(alert.Hits);
+        AssertHit(hit, "G1", 30, [first.Id, second.Id],
+            "Pays out to bank account BA-SHARED-G1, which ACC-G1-FIRST of a different Holder also pays out to");
+        Assert.Equal(Monday.AddDays(1), hit.TriggeredAt);
     }
 }

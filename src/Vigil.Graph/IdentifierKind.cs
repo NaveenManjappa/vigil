@@ -25,12 +25,15 @@ internal sealed record IdentifierKind(string Label, string Relationship, Func<Po
         MERGE (a:Account {accountId: row.accountId})
         MERGE (i:{{Label}} {value: row.value})
         MERGE (a)-[r:{{Relationship}}]->(i)
-        """ + KeepEarliestFirstSeen;
+        """ + KeepEarliestLink;
 
     // Events can arrive late (detection orders by OccurredAt, not arrival), so a later projection may carry an earlier time.
-    internal const string KeepEarliestFirstSeen = """
+    // firstEventId is the event that made the link, which Graph Rules cite as evidence. It is set before firstSeen
+    // because SET applies its items in order, and the comparison must see the old firstSeen.
+    internal const string KeepEarliestLink = """
 
-          ON CREATE SET r.firstSeen = row.at
-          ON MATCH SET r.firstSeen = CASE WHEN row.at < r.firstSeen THEN row.at ELSE r.firstSeen END
+          ON CREATE SET r.firstSeen = row.at, r.firstEventId = row.eventId
+          ON MATCH SET r.firstEventId = CASE WHEN row.at < r.firstSeen THEN row.eventId ELSE r.firstEventId END,
+                       r.firstSeen = CASE WHEN row.at < r.firstSeen THEN row.at ELSE r.firstSeen END
         """;
 }

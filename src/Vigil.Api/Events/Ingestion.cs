@@ -12,8 +12,10 @@ namespace Vigil.Api.Events;
 /// <summary>
 /// Appends a batch, projects it into the graph and scores every Account in it, in one transaction, so an Alert
 /// exists as soon as the request returns and a failure leaves neither events nor Alerts half-written.
+/// Only the batch's own Accounts are scored; other Accounts a new link reaches are not yet re-checked.
 /// </summary>
-public sealed class Ingestion(VigilDbContext db, EventStore events, AlertStore alerts, GraphProjector graph, RuleSet ruleSet)
+public sealed class Ingestion(
+    VigilDbContext db, EventStore events, AlertStore alerts, GraphProjector graph, GraphRules graphRules, RuleSet ruleSet)
 {
     public async Task<AppendResult> IngestAsync(IReadOnlyCollection<PortalEvent> batch, CancellationToken ct)
     {
@@ -37,7 +39,8 @@ public sealed class Ingestion(VigilDbContext db, EventStore events, AlertStore a
             foreach (var accountId in accounts)
             {
                 var timeline = await events.GetTimelineAsync(accountId, ct);
-                await alerts.SaveAsync(accountId, stored => Detector.Detect(timeline, ruleSet, stored), ct);
+                var graphHits = await graphRules.HitsForAsync(accountId, ruleSet, ct);
+                await alerts.SaveAsync(accountId, stored => Detector.Detect(timeline, ruleSet, stored, graphHits), ct);
             }
 
             await tx.CommitAsync(ct);

@@ -8,6 +8,7 @@ public sealed class DetectorTests
     private const string Account = "ACC-1";
     private static readonly DateTimeOffset Monday = new(2026, 9, 21, 9, 0, 0, TimeSpan.Zero);
     private static readonly RuleSet Rules = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.v1.json"));
+    private static readonly RuleSet RulesV2 = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.v2.json"));
 
     private static PortalEvent Event(EventType type, DateTimeOffset at) =>
         new(Guid.NewGuid(), Account, "HOLDER-1", type, at, "D-1", "198.51.100.1", "GB", "web", new Dictionary<string, string>());
@@ -444,6 +445,94 @@ public sealed class DetectorTests
         Assert.Equal("First sighting on this Account: new device D-77, new country RO", hit.Explanation);
     }
 
+    /// <summary>A G1 hit as Vigil.Graph would hand it over: a bank account shared with another Holder's Account.</summary>
+    private static RuleHit SharedBankAccount(DateTimeOffset at, string otherAccount = "ACC-2") =>
+        new("G1", 30, [Guid.NewGuid(), Guid.NewGuid()], at, $"Pays out to bank account BA-9f31, which {otherAccount} of a different Holder also pays out to");
+
+    [Fact]
+    public void A_graph_hit_joins_the_risk_episode_of_the_accounts_own_hits()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var g1 = SharedBankAccount(Monday.AddDays(2));
+
+        var alert = Assert.Single(Detector.Detect([reset, mfa], RulesV2, graphHits: [g1]));
+
+        // R1 30 + G1 30 = 60.
+        Assert.Equal(["R1", "G1"], alert.Hits.Select(h => h.RuleId));
+        Assert.Equal(60, alert.Score);
+        Assert.Equal(RiskBand.High, alert.Band);
+        Assert.Equal("v2", alert.RulesVersion);
+        Assert.Same(g1, alert.Hits[1]);
+    }
+
+    [Fact]
+    public void A_graph_hit_takes_its_place_in_trigger_order_among_the_accounts_own_hits()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var email = Event(EventType.EmailChanged, Monday.AddHours(3));
+
+        var alert = Assert.Single(Detector.Detect([reset, mfa, email], RulesV2, graphHits: [SharedBankAccount(Monday.AddHours(1))]));
+
+        Assert.Equal(["R1", "G1", "R2"], alert.Hits.Select(h => h.RuleId));
+    }
+
+    [Fact]
+    public void A_graph_hit_more_than_the_risk_period_after_the_last_hit_opens_a_new_alert()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+
+        var alerts = Detector.Detect([reset, mfa], RulesV2, graphHits: [SharedBankAccount(Monday.AddDays(10))]);
+
+        Assert.Collection(alerts,
+            first => Assert.Equal(["R1"], first.Hits.Select(h => h.RuleId)),
+            second =>
+            {
+                Assert.Equal(["G1"], second.Hits.Select(h => h.RuleId));
+                Assert.Equal(30, second.Score);
+                Assert.Equal(RiskBand.Medium, second.Band);
+            });
+    }
+
+    [Fact]
+    public void A_graph_rule_counts_once_per_episode_and_keeps_its_first_hit()
+    {
+        // Two other Holders' Accounts pay to the same bank account: two candidates, one Rule.
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var first = SharedBankAccount(Monday.AddDays(1), "ACC-2");
+        var second = SharedBankAccount(Monday.AddDays(2), "ACC-3");
+
+        var alert = Assert.Single(Detector.Detect([reset, mfa], RulesV2, graphHits: [second, first]));
+
+        Assert.Equal(60, alert.Score);
+        Assert.Same(first, Assert.Single(alert.Hits, h => h.RuleId == "G1"));
+    }
+
+    [Fact]
+    public void A_graph_hit_is_appended_to_a_stored_alert_and_never_lowers_its_score()
+    {
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
+        var stored = Detector.Detect([reset, mfa, email], Rules);
+
+        // A G1 that triggered before R2 still goes after the stored hits, which are never reordered.
+        var extended = Assert.Single(Detector.Detect([reset, mfa, email], RulesV2, stored, [SharedBankAccount(Monday.AddMinutes(5))]));
+
+        Assert.Equal(["R1", "R2", "G1"], extended.Hits.Select(h => h.RuleId));
+        Assert.Equal(stored[0].Hits, extended.Hits.Take(2), RuleHitComparer.Instance);
+        Assert.Equal(80, extended.Score);
+        Assert.Equal("v1", extended.RulesVersion);
+
+        // The graph no longer reporting the link removes nothing.
+        var again = Assert.Single(Detector.Detect([reset, mfa, email], RulesV2, [extended], graphHits: []));
+        Assert.Equal(extended.Hits, again.Hits, RuleHitComparer.Instance);
+        Assert.Equal(80, again.Score);
+    }
+
     // RuleHit holds its evidence in a list, which records compare by reference.
     private sealed class RuleHitComparer : IEqualityComparer<RuleHit>
     {
@@ -478,5 +567,31 @@ public sealed class DetectorTests
             """;
 
         Assert.Throws<InvalidDataException>(() => RuleSet.Parse(json));
+    }
+
+    [Fact]
+    public void A_graph_rule_with_steps_fails_to_load()
+    {
+        const string json = """
+            { "version": "v2", "riskPeriodDays": 7, "bands": { "medium": 30, "high": 60, "critical": 90 },
+              "rules": [{ "id": "G1", "name": "Shared bank account", "kind": "graph",
+                          "steps": [["BankDetailsChanged"], ["BankDetailsChanged"]], "points": 30, "explanation": "x" }] }
+            """;
+
+        Assert.Throws<InvalidDataException>(() => RuleSet.Parse(json));
+    }
+
+    [Fact]
+    public void Rules_v2_is_v1_unchanged_plus_the_graph_rule_G1()
+    {
+        // v1 stays as it was, so Alerts stamped v1 can still be reproduced.
+        Assert.Equal("v2", RulesV2.Version);
+        Assert.Equal((Rules.RiskPeriodDays, Rules.Bands), (RulesV2.RiskPeriodDays, RulesV2.Bands));
+        Assert.Equal(
+            Rules.Rules.Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)),
+            RulesV2.Rules.SkipLast(1).Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)));
+
+        var g1 = RulesV2.Rules[^1];
+        Assert.Equal(("G1", RuleKind.Graph, 30), (g1.Id, g1.Kind, g1.Points));
     }
 }

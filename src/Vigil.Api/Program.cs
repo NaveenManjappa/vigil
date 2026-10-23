@@ -19,13 +19,16 @@ builder.AddNpgsqlDbContext<VigilDbContext>("vigil");
 
 // Loaded once at startup so a malformed rules file stops the API rather than failing mid-ingest (ADR-0002).
 var rulesPath = builder.Configuration["Rules:Path"] ?? throw new InvalidOperationException("Rules:Path is not configured.");
-builder.Services.AddSingleton(RuleSet.Load(Path.Combine(AppContext.BaseDirectory, rulesPath)));
+var ruleSet = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, rulesPath));
+GraphRules.EnsureKnown(ruleSet);
+builder.Services.AddSingleton(ruleSet);
 
 // The AppHost supplies both; the driver is thread-safe and pools connections, so one serves the whole app.
 var neo4jUri = builder.Configuration["Neo4j:Uri"] ?? throw new InvalidOperationException("Neo4j:Uri is not configured.");
 var neo4jPassword = builder.Configuration["Neo4j:Password"] ?? throw new InvalidOperationException("Neo4j:Password is not configured.");
 builder.Services.AddSingleton(_ => GraphDatabase.Driver(neo4jUri, AuthTokens.Basic("neo4j", neo4jPassword)));
 builder.Services.AddSingleton<GraphProjector>();
+builder.Services.AddSingleton<GraphRules>();
 
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddScoped<EventStore>();
