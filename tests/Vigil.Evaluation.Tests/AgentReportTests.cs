@@ -38,7 +38,7 @@ public sealed class AgentReportTests
 
         Assert.Contains("## Agents", markdown);
         Assert.Contains("2 Investigations: 1 Flagged Account and 1 Near-miss, drawn with seed 42.", markdown);
-        Assert.Contains("| Evidence Grounding | first-attempt Findings whose cited Evidence Refs all exist ÷ first-attempt Findings | 2 / 2 (100.0%) |", markdown);
+        Assert.Contains("| Evidence Grounding | first-attempt Findings whose cited Evidence Refs all exist ÷ first-attempt Findings; Investigations that failed before any Finding are left out of both | 2 / 2 (100.0%) |", markdown);
         Assert.Contains("| Verdict Agreement | Findings whose verdict fits the Label ÷ all Findings | 1 / 2 (50.0%) |", markdown);
         Assert.Contains("| Verdict Agreement on Near-misses | Near-miss Findings saying LikelyGenuine or Inconclusive ÷ Near-miss Findings | 0 / 1 (0.0%) |", markdown);
         Assert.Contains("| Reviewer rejection rate | Reviews that rejected the Finding ÷ all Reviews | 0 / 2 (0.0%) |", markdown);

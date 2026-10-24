@@ -1,14 +1,13 @@
 using Vigil.Domain.Detection;
+using Vigil.Simulator.StandIn;
 
 namespace Vigil.Evaluation.Tuning;
 
 /// <summary>One Case an analyst decided, with the Rules its Alert contained.</summary>
-/// <param name="Outcome">The decision's outcome as stored, such as <c>ConfirmedFraud</c> or <c>FalsePositive</c>.</param>
+/// <param name="Outcome">The decision's outcome as stored, one of the <see cref="DecisionValues"/> outcomes.</param>
 public sealed record DecidedCase(Guid CaseId, string Outcome, string AnalystId, IReadOnlyList<string> RuleIds)
 {
-    public const string ConfirmedFraud = "ConfirmedFraud";
-
-    public bool IsFraud => Outcome == ConfirmedFraud;
+    public bool IsFraud => Outcome == DecisionValues.ConfirmedFraud;
 }
 
 /// <summary>A Rule's precision from Analyst Decisions; <c>Of</c> is how many decided Cases contained it.</summary>

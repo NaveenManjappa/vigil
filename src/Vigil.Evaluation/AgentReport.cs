@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using static Vigil.Evaluation.Markdown;
 
 namespace Vigil.Evaluation;
 
@@ -51,12 +52,12 @@ public static class AgentReport
         md.AppendLine();
         md.AppendLine("| Metric | Definition | Value |");
         md.AppendLine("|---|---|---|");
-        md.AppendLine($"| Evidence Grounding | first-attempt Findings whose cited Evidence Refs all exist ÷ first-attempt Findings | {Report.Cell(agents.EvidenceGrounding)} |");
-        md.AppendLine($"| Verdict Agreement | Findings whose verdict fits the Label ÷ all Findings | {Report.Cell(agents.VerdictAgreement)} |");
-        md.AppendLine($"| Verdict Agreement on Near-misses | Near-miss Findings saying LikelyGenuine or Inconclusive ÷ Near-miss Findings | {Report.Cell(agents.NearMissAgreement)} |");
-        md.AppendLine($"| Reviewer rejection rate | Reviews that rejected the Finding ÷ all Reviews | {Report.Cell(agents.ReviewerRejectionRate)} |");
-        md.AppendLine($"| Review Flag rate | Findings kept with the Review Flag ÷ all Findings | {Report.Cell(agents.ReviewFlagRate)} |");
-        md.AppendLine($"| Investigations failed | Investigations that ended with no Finding ÷ all Investigations | {Report.Cell(agents.FailureRate)} |");
+        md.AppendLine($"| Evidence Grounding | first-attempt Findings whose cited Evidence Refs all exist ÷ first-attempt Findings; Investigations that failed before any Finding are left out of both | {Cell(agents.EvidenceGrounding)} |");
+        md.AppendLine($"| Verdict Agreement | Findings whose verdict fits the Label ÷ all Findings | {Cell(agents.VerdictAgreement)} |");
+        md.AppendLine($"| Verdict Agreement on Near-misses | Near-miss Findings saying LikelyGenuine or Inconclusive ÷ Near-miss Findings | {Cell(agents.NearMissAgreement)} |");
+        md.AppendLine($"| Reviewer rejection rate | Reviews that rejected the Finding ÷ all Reviews | {Cell(agents.ReviewerRejectionRate)} |");
+        md.AppendLine($"| Review Flag rate | Findings kept with the Review Flag ÷ all Findings | {Cell(agents.ReviewFlagRate)} |");
+        md.AppendLine($"| Investigations failed | Investigations that ended with no Finding ÷ all Investigations | {Cell(agents.FailureRate)} |");
         md.AppendLine($"| Tokens per Investigation | mean, both agents, retries included | {Tokens((long)Math.Round(investigations.Sum(i => i.Tokens) / (double)count))} |");
         md.AppendLine($"| Cost per Investigation | mean estimated £ at the configured prices | £{Pounds(investigations.Sum(i => i.Cost) / count)} |");
         md.AppendLine($"| Seconds per Investigation | mean wall-clock time, Enrich to the last Review | {Seconds(investigations.Sum(i => i.Duration.TotalSeconds) / count)} |");
@@ -83,7 +84,7 @@ public static class AgentReport
         md.AppendLine($"| Proportionate recommendation | {Mean(means.ProportionateRecommendation)} |");
         md.AppendLine($"| Clarity | {Mean(means.Clarity)} |");
         md.AppendLine();
-        md.AppendLine($"Judged: {Report.Cell(agents.JudgedRate)} Findings, {Tokens(judged.Sum(i => i.JudgeTokens))} tokens, " +
+        md.AppendLine($"Judged: {Cell(agents.JudgedRate)} Findings, {Tokens(judged.Sum(i => i.JudgeTokens))} tokens, " +
             $"£{Pounds(judged.Sum(i => i.JudgeCost))}. Not in the cost per Investigation, since production never runs the Judge.");
         md.AppendLine();
         if (judged.Count == 0) return;
@@ -133,12 +134,7 @@ public static class AgentReport
 
     private static string Mean(double? mean) => mean?.ToString("0.0", Invariant) ?? "—";
 
-    // A reason is the model's free text, so a pipe or line break in it would break the table.
-    private static string Escape(string text) => text.Replace("|", "\\|").ReplaceLineEndings(" ");
-
     private static string YesNo(bool? value) => value switch { true => "yes", false => "no", null => "—" };
-
-    private static string Count(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
 
     private static string Tokens(long tokens) => tokens.ToString("N0", Invariant);
 

@@ -4,6 +4,7 @@ using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
 using Vigil.Agents;
 using Vigil.Domain.Events;
+using Vigil.Domain.Telemetry;
 using Vigil.Simulator.Scenarios;
 
 namespace Vigil.Evaluation;
@@ -41,13 +42,13 @@ public sealed class ScenarioGenerator
 
     public ScenarioGenerator(IChatClient chat)
     {
-        // No Temperature 0, unlike the Investigator: a red team that always writes the same journey finds one gap.
+        // No Temperature 0, unlike the Investigator: a red team that always writes the same journey finds one Blind Spot.
         _agent = chat.AsAIAgent(new ChatClientAgentOptions
         {
             Id = AgentId,
             Name = AgentName,
             ChatOptions = new ChatOptions { Instructions = Prompts.Load(PromptVersion) },
-        });
+        }).AsBuilder().UseOpenTelemetry(sourceName: VigilTelemetry.AgentsSourceName).Build();
     }
 
     /// <param name="rulesJson">The rules file as written, so the model reads the same Windows and points detection uses.</param>

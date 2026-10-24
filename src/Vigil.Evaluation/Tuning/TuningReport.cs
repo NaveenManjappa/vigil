@@ -1,5 +1,5 @@
-using System.Globalization;
 using System.Text;
+using static Vigil.Evaluation.Markdown;
 
 namespace Vigil.Evaluation.Tuning;
 
@@ -53,7 +53,7 @@ public static class TuningReport
             return md.ToString();
         }
 
-        md.AppendLine("Each suggestion alone, re-run over the Dataset with the offline Detector. A quieter Rule can also cost " +
+        md.AppendLine("Each suggestion alone, re-run over the Dataset with `Detector.Detect`, the API's own scoring run in memory. A quieter Rule can also cost " +
             "fraud caught, or caught before the bank change; that trade-off is the judgement a person makes here.");
         foreach (var w in whatIfs)
         {
@@ -69,10 +69,4 @@ public static class TuningReport
 
         return md.ToString();
     }
-
-    private static string Cell(Rate rate) => $"{rate.Count} / {rate.Of} ({Percent(rate)})";
-
-    // Invariant culture, so a report reads the same whatever machine generated it.
-    private static string Percent(Rate rate) =>
-        rate.Value is { } v ? (v * 100).ToString("0.0", CultureInfo.InvariantCulture) + "%" : "n/a";
 }

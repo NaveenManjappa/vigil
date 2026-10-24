@@ -53,6 +53,17 @@ public sealed class AgentSampleTests
     }
 
     [Fact]
+    public void With_few_Flagged_Accounts_the_Near_misses_stay_at_most_a_quarter_of_the_sample()
+    {
+        var scored = Flagged(Persona.AtoFraudster, FraudKind.Ato, 8).Concat(NearMisses(10));
+
+        var sample = AgentSample.Draw(scored, seed: 42, size: 20);
+
+        Assert.Equal(10, sample.Count);
+        Assert.Equal(2, sample.Count(s => s.IsNearMiss));
+    }
+
+    [Fact]
     public void Fewer_candidates_than_the_sample_size_are_all_taken()
     {
         var scored = Flagged(Persona.AtoFraudster, FraudKind.Ato, 3).Concat(NearMisses(1)).Concat(NeverSampled);

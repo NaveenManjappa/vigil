@@ -1,4 +1,5 @@
 using System.Text;
+using static Vigil.Evaluation.Markdown;
 
 namespace Vigil.Evaluation;
 
@@ -22,13 +23,8 @@ public static class BlindSpotReport
         {
             var label = spot.Scenario.Label!;
             var rules = spot.RulesHit.Count == 0 ? "—" : string.Join(", ", spot.RulesHit);
-            md.AppendLine($"| {spot.Scenario.Name} | {label.FraudKind} | {Cell(label.Intent)} | {spot.Peak} | {rules} |");
+            md.AppendLine($"| {spot.Scenario.Name} | {label.FraudKind} | {Escape(label.Intent)} | {spot.Peak} | {rules} |");
         }
         md.AppendLine();
     }
-
-    private static string Count(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
-
-    // The intent is model-written, so a stray pipe must not split the row.
-    private static string Cell(string text) => text.Replace("|", "\\|");
 }

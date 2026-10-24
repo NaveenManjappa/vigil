@@ -34,7 +34,7 @@ public sealed record HolderBaseline(IReadOnlyList<string> UsualCountries, IReadO
         if (usual.Count == 0) return new HolderBaseline([], [], 0);
 
         var logins = usual.Count(e => e.Type == EventType.LoginSucceeded);
-        // At least a week, so one login the day before the takeover does not read as a heavy user.
+        // At least a week, so one login the day before the takeover does not read as a Holder who logs in daily.
         var weeks = Math.Max(1, (before - usual[0].OccurredAt).TotalDays / 7);
         return new HolderBaseline(MostUsedFirst(usual, e => e.Country), MostUsedFirst(usual, e => e.DeviceId), Math.Round(logins / weeks, 1));
     }

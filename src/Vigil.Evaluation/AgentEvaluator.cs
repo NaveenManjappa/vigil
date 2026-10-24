@@ -69,6 +69,14 @@ public sealed record AgentEvaluation(
         }
     }
 
+    /// <summary>One line for the console, so a run's headline numbers show without opening the report.</summary>
+    public string Summary() =>
+        $"agents ({Provider}{(IsMeaningful ? "" : ", not meaningful")}): " +
+        $"Evidence Grounding {EvidenceGrounding.Count}/{EvidenceGrounding.Of}, " +
+        $"Verdict Agreement {VerdictAgreement.Count}/{VerdictAgreement.Of}, " +
+        $"{Investigations.Sum(i => i.Tokens)} tokens, £{Investigations.Sum(i => i.Cost)}; " +
+        $"Judge {JudgedRate.Count}/{JudgedRate.Of} judged, {Investigations.Sum(i => i.JudgeTokens)} tokens";
+
     private static Rate Of(IEnumerable<bool?> answers)
     {
         var known = answers.OfType<bool>().ToList();

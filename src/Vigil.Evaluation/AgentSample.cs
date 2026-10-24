@@ -6,7 +6,10 @@ namespace Vigil.Evaluation;
 /// <summary>An Account with the Alerts detection raised on it, which is what the Agent Sample is drawn from.</summary>
 public sealed record ScoredAccount(LabelledAccount Account, IReadOnlyList<Alert> Alerts)
 {
-    public RiskBand PeakBand => Alerts.Select(a => a.Band).DefaultIfEmpty(RiskBand.Low).Max();
+    public RiskBand PeakBand => Peak(Alerts.Select(a => a.Band));
+
+    /// <summary>The highest band reached; Low when nothing was raised, as for an Account with no Alert.</summary>
+    public static RiskBand Peak(IEnumerable<RiskBand> bands) => bands.DefaultIfEmpty(RiskBand.Low).Max();
 }
 
 /// <param name="Alert">The Alert the Investigation opens on: the Account's highest-scoring one.</param>
@@ -14,7 +17,7 @@ public sealed record SampledAccount(LabelledAccount Account, Alert Alert, bool I
 
 /// <summary>
 /// Draws the Agent Sample (ADR-0016): <see cref="AgentSampleSize"/> Flagged Accounts taken in turn from each Persona,
-/// so a rare Persona is not crowded out by a common one, plus up to a quarter as many Near-misses, so the sample
+/// so a rare Persona is not crowded out by a common one, plus Near-misses making up at most a quarter of the final sample, so it
 /// holds genuine Accounts the agents could clear. The seed fixes the draw, so two runs investigate the same Accounts.
 /// </summary>
 public static class AgentSample
@@ -34,10 +37,13 @@ public static class AgentSample
             .ToList();
         var takenInTurn = Enumerable.Range(0, flagged.Select(g => g.Count).DefaultIfEmpty(0).Max())
             .SelectMany(round => flagged.Where(g => round < g.Count).Select(g => g[round]))
-            .Take(size);
+            .Take(size)
+            .ToList();
 
+        // A third of the Flagged ones taken is a quarter of the final sample, so a short Flagged list cannot leave the
+        // sample mostly Near-misses.
         var nearMisses = Shuffled(accounts.Where(a => !a.Account.Label.IsFraud && a.PeakBand == RiskBand.Medium), random)
-            .Take(size / 4);
+            .Take(Math.Min(size / 4, takenInTurn.Count / 3));
 
         return
         [

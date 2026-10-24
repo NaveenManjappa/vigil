@@ -1,7 +1,7 @@
-using System.Globalization;
 using System.Text;
 using Vigil.Domain.Datasets;
 using Vigil.Domain.Detection;
+using static Vigil.Evaluation.Markdown;
 
 namespace Vigil.Evaluation;
 
@@ -112,10 +112,4 @@ public static class Report
 
     private static string PeakBands(PersonaOutcome p) =>
         string.Join(" / ", Enum.GetValues<RiskBand>().Select(b => p.PeakBands[b]));
-
-    internal static string Cell(Rate rate) => $"{rate.Count} / {rate.Of} ({Percent(rate)})";
-
-    // Invariant culture, so a report reads the same whatever machine generated it.
-    private static string Percent(Rate rate) =>
-        rate.Value is { } v ? (v * 100).ToString("0.0", CultureInfo.InvariantCulture) + "%" : "n/a";
 }

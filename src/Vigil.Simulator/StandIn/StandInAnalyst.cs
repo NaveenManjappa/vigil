@@ -26,17 +26,17 @@ public static class StandInAnalyst
     public const string AnalystId = "stand-in";
 
     public static StandInDecision DecisionFor(Label label) => label.IsFraud
-        ? new("ConfirmedFraud", "BlockBankChanges", AnalystId, $"Stand-in: Label is {label.Persona} ({label.FraudKind}).")
-        : new("FalsePositive", "NoAction", AnalystId, $"Stand-in: Label is {label.Persona} (genuine).");
+        ? new(DecisionValues.ConfirmedFraud, DecisionValues.BlockBankChanges, AnalystId, $"Stand-in: Label is {label.Persona} ({label.FraudKind}).")
+        : new(DecisionValues.FalsePositive, DecisionValues.NoAction, AnalystId, $"Stand-in: Label is {label.Persona} (genuine).");
 
     public static DecisionPlan Plan(IEnumerable<CaseListing> cases, IReadOnlyDictionary<string, Label> labels)
     {
         var all = cases.ToList();
-        var awaiting = all.Where(c => c.Status == "AwaitingApproval").ToList();
+        var awaiting = all.Where(c => c.Status == CaseStatuses.AwaitingApproval).ToList();
 
         return new DecisionPlan(
             [.. awaiting.Where(c => labels.ContainsKey(c.AccountId)).Select(c => new PlannedDecision(c.Id, DecisionFor(labels[c.AccountId])))],
-            all.Count(c => c.Status is "Open" or "Investigating"),
+            all.Count(c => c.Status is CaseStatuses.Open or CaseStatuses.Investigating),
             // Left for a human: deciding a Case without its ground truth would put a guess into the Rule-Tuning Report.
             [.. awaiting.Where(c => !labels.ContainsKey(c.AccountId)).Select(c => c.AccountId).Distinct()]);
     }

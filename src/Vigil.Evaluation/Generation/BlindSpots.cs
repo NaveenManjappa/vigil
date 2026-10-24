@@ -21,11 +21,10 @@ public static class BlindSpots
         var fraud = generated.Where(s => s.Label?.IsFraud == true).ToList();
         var spots = fraud
             .Select(scenario => (scenario, rows: ScenarioReplay.Replay(scenario, rules)))
-            .Where(run => run.rows.All(r => r.Band < RiskBand.High))
+            .Select(run => (run.scenario, run.rows, peak: ScoredAccount.Peak(run.rows.Select(r => r.Band))))
+            .Where(run => run.peak < RiskBand.High)
             .Select(run => new BlindSpot(
-                run.scenario,
-                run.rows.Select(r => r.Band).DefaultIfEmpty(RiskBand.Low).Max(),
-                run.rows.SelectMany(r => r.NewHits).Select(h => h.RuleId).Distinct().ToList()))
+                run.scenario, run.peak, run.rows.SelectMany(r => r.NewHits).Select(h => h.RuleId).Distinct().ToList()))
             .ToList();
         return new BlindSpotReview(rules.Version, generated.Count, fraud.Count, spots);
     }

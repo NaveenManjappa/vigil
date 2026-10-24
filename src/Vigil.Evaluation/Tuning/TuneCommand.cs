@@ -17,12 +17,12 @@ public static class TuneCommand
     /// <returns>The report's path.</returns>
     public static async Task<string> RunAsync(string[] args, CancellationToken ct = default)
     {
-        var connection = Option(args, "--connection") ?? throw new ArgumentException("tune needs --connection, the API's Postgres connection string.");
+        var connection = GenerateCommand.Option(args, "--connection") ?? throw new ArgumentException("tune needs --connection, the API's Postgres connection string.");
         // Defaults to the API's rules, the version the decided Alerts were scored with.
-        var rulesPath = Option(args, "--rules") ?? Path.Combine("config", "rules.v2.json");
-        var seed = int.Parse(Option(args, "--seed") ?? "42");
-        var holders = int.Parse(Option(args, "--holders") ?? "1000");
-        var outFolder = Option(args, "--out") ?? "eval-reports";
+        var rulesPath = GenerateCommand.Option(args, "--rules") ?? EvaluationDefaults.RulesPath;
+        var seed = int.Parse(GenerateCommand.Option(args, "--seed") ?? "42");
+        var holders = int.Parse(GenerateCommand.Option(args, "--holders") ?? "1000");
+        var outFolder = GenerateCommand.Option(args, "--out") ?? "eval-reports";
 
         var ruleSet = RuleSet.Load(rulesPath);
         var decisions = await DecisionReader.ReadAsync(connection, ct);
@@ -58,13 +58,5 @@ public static class TuneCommand
                 $"false-positive rate {w.Before.FalsePositiveRate.Count} → {w.After.FalsePositiveRate.Count}, " +
                 $"early-detection rate {w.Before.EarlyDetectionRate.Count} → {w.After.EarlyDetectionRate.Count} of {w.After.EarlyDetectionRate.Of}");
         return reportPath;
-    }
-
-    private static string? Option(string[] args, string name)
-    {
-        var i = Array.IndexOf(args, name);
-        if (i < 0) return null;
-        if (i + 1 >= args.Length) throw new ArgumentException($"{name} needs a value.");
-        return args[i + 1];
     }
 }

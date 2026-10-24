@@ -78,7 +78,7 @@ It needs Docker but no AppHost, API or Postgres. It takes about a minute and a h
 It writes `eval-reports/<run ID>.md` and prints a summary:
 
 ```text
-Wrote eval-reports/20261024T155914Z-v1-v2-seed42.md
+Wrote eval-reports/20261024T162209Z-v1-v2-seed42.md
 v1: detection rate 17/30, false-positive rate 20/970, early-detection rate 9/9
 v2: detection rate 22/30, false-positive rate 20/970, early-detection rate 9/9
 agents (Fake, not meaningful): Evidence Grounding 25/25, Verdict Agreement 10/25, 0 tokens, £0.0000; Judge 25/25 judged, 0 tokens
@@ -97,7 +97,7 @@ Options:
 | `--rules-on` | `config/rules.v2.json` | Rules Version scored with the graph on; the Agent Sample and Blind Spots use it |
 | `--out` | `eval-reports` | Report folder |
 | `--llm` | `Fake` | `Fake` or `AzureOpenAI` |
-| `--agent-sample` | `20` | Flagged Accounts in the Agent Sample; Near-misses add up to a quarter more |
+| `--agent-sample` | `20` | Flagged Accounts in the Agent Sample; Near-misses add up to a quarter more, and never more than a quarter of the final sample |
 
 Commit a report you want to keep. Each run writes a new file named by its run ID, so delete the older one if the new one replaces it.
 

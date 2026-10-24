@@ -7,7 +7,7 @@ public sealed class RuleTuningTests
 {
     private static readonly RuleSet Rules = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.v2.json"));
 
-    private static DecidedCase Fraud(params string[] ruleIds) => new(Guid.NewGuid(), DecidedCase.ConfirmedFraud, "stand-in", ruleIds);
+    private static DecidedCase Fraud(params string[] ruleIds) => new(Guid.NewGuid(), "ConfirmedFraud", "stand-in", ruleIds);
 
     private static DecidedCase Genuine(params string[] ruleIds) => new(Guid.NewGuid(), "FalsePositive", "stand-in", ruleIds);
 

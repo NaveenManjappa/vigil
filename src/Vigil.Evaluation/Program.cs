@@ -26,7 +26,7 @@ if (args.FirstOrDefault() == Vigil.Evaluation.Tuning.TuneCommand.Name)
 var seed = int.Parse(Option("--seed") ?? "42");
 var holders = int.Parse(Option("--holders") ?? "1000");
 var offPath = Option("--rules-off") ?? Path.Combine("config", "rules.v1.json");
-var onPath = Option("--rules-on") ?? Path.Combine("config", "rules.v2.json");
+var onPath = Option("--rules-on") ?? EvaluationDefaults.RulesPath;
 var outFolder = Option("--out") ?? "eval-reports";
 var agentSampleSize = int.Parse(Option("--agent-sample") ?? $"{AgentSample.AgentSampleSize}");
 var generatedFolder = Path.Combine("datasets", "generated");
@@ -39,7 +39,7 @@ if (args.FirstOrDefault() is not ("scenario" or "generate-scenarios") && args.Co
 // run dry-runs it for Blind Spots.
 if (args.FirstOrDefault() == "generate-scenarios")
 {
-    var rulesPath = Option("--rules") ?? Path.Combine("config", "rules.v2.json");
+    var rulesPath = Option("--rules") ?? EvaluationDefaults.RulesPath;
     var folder = Option("--out") ?? generatedFolder;
     var examples = Directory.GetFiles("scenarios", "*.json").Order(StringComparer.Ordinal).ToList();
     var existing = Scenario.LoadAll("scenarios").Concat(GeneratedScenarios.LoadAll(folder)).ToList();
@@ -69,7 +69,7 @@ if (args.FirstOrDefault() == "scenario")
 {
     var scenario = Scenario.Load(args.Length > 1 ? args[1] : throw new ArgumentException("scenario needs a file path."));
     // Defaults to the API's rules, so the dry run shows the live Score less only the Graph Rules it says it skipped.
-    var rules = RuleSet.Load(Option("--rules") ?? Path.Combine("config", "rules.v2.json"));
+    var rules = RuleSet.Load(Option("--rules") ?? EvaluationDefaults.RulesPath);
     Console.Write(ScenarioReplay.Render(scenario, rules, ScenarioReplay.Replay(scenario, rules)));
     return;
 }
@@ -120,23 +120,15 @@ foreach (var result in new[] { offResult, onResult })
     Console.WriteLine($"{result.RulesVersion}: detection rate {result.DetectionRate.Count}/{result.DetectionRate.Of}, " +
         $"false-positive rate {result.FalsePositiveRate.Count}/{result.FalsePositiveRate.Of}, " +
         $"early-detection rate {result.EarlyDetectionRate.Count}/{result.EarlyDetectionRate.Of}");
-Console.WriteLine($"agents ({llm.Provider}{(agents.IsMeaningful ? "" : ", not meaningful")}): " +
-    $"Evidence Grounding {agents.EvidenceGrounding.Count}/{agents.EvidenceGrounding.Of}, " +
-    $"Verdict Agreement {agents.VerdictAgreement.Count}/{agents.VerdictAgreement.Of}, " +
-    $"{agents.Investigations.Sum(i => i.Tokens)} tokens, £{agents.Investigations.Sum(i => i.Cost)}; " +
-    $"Judge {agents.JudgedRate.Count}/{agents.JudgedRate.Of} judged, {agents.Investigations.Sum(i => i.JudgeTokens)} tokens");
+Console.WriteLine(agents.Summary());
 Console.WriteLine($"Blind Spots: {blindSpots.BlindSpots.Count} of {blindSpots.Fraud} fraud Generated Scenarios never reached High on {blindSpots.RulesVersion}");
 
 // The API's LLM wiring (ADR-0009), configured from environment variables such as Llm__Endpoint, Llm__Deployment and
-// Llm__ApiKey. The prices default to the API's appsettings.json, so the £ figures match its token log.
+// Llm__ApiKey. The prices are read from the API's own appsettings.json, so the £ figures match its token log.
 ServiceProvider Llm(string provider)
 {
     var configuration = new ConfigurationBuilder()
-        .AddInMemoryCollection(new Dictionary<string, string?>
-        {
-            ["Llm:InputPricePer1kTokens"] = "0.0003",
-            ["Llm:OutputPricePer1kTokens"] = "0.0012",
-        })
+        .AddJsonFile(Path.GetFullPath(Path.Combine("src", "Vigil.Api", "appsettings.json")), optional: false)
         .AddEnvironmentVariables()
         .AddInMemoryCollection(new Dictionary<string, string?> { ["Llm:Provider"] = provider })
         .Build();
@@ -147,10 +139,4 @@ ServiceProvider Llm(string provider)
         .BuildServiceProvider();
 }
 
-string? Option(string name)
-{
-    var i = Array.IndexOf(args, name);
-    if (i < 0) return null;
-    if (i + 1 >= args.Length) throw new ArgumentException($"{name} needs a value.");
-    return args[i + 1];
-}
+string? Option(string name) => GenerateCommand.Option(args, name);
