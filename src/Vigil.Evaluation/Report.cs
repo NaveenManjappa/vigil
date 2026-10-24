@@ -27,7 +27,9 @@ public static class Report
     /// <param name="off">The same Dataset scored without Graph Rules.</param>
     /// <param name="on">The same Dataset scored with Graph Rules, from a time-ordered replay into Neo4j.</param>
     /// <param name="agents">The Agent Sample's Investigations; null leaves the agent section out.</param>
-    public static string Render(EvaluationRun run, EvaluationResult off, EvaluationResult on, AgentEvaluation? agents = null)
+    /// <param name="blindSpots">The committed Generated Scenarios' dry run; null leaves the Blind Spot section out.</param>
+    public static string Render(
+        EvaluationRun run, EvaluationResult off, EvaluationResult on, AgentEvaluation? agents = null, BlindSpotReview? blindSpots = null)
     {
         var md = new StringBuilder();
         md.AppendLine("# Evaluation: graph off vs on");
@@ -101,6 +103,9 @@ public static class Report
 
         if (agents is not null)
             AgentReport.AppendSection(md, run, agents);
+
+        if (blindSpots is not null)
+            BlindSpotReport.AppendSection(md, blindSpots);
 
         return md.ToString();
     }

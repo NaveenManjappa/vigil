@@ -1,0 +1,43 @@
+{
+  "name": "fake-late-mfa-slow-cash-out",
+  "description": "Scripted by the Fake provider. A fraudster resets the password, enrols their own MFA 65 minutes later, changes the bank details the next day and sells a week and an hour after that.",
+  "accountId": "ACC-GEN-FAKE-LATE-MFA",
+  "label": {
+    "kind": "Ato",
+    "intent": "Fake-written placeholder, to be replaced by the Azure run: MFA 65 minutes after the reset misses R1's 60-minute Window, and the sale waits out R4."
+  },
+  "baseline": {
+    "device": "D-GEN-HOLDER",
+    "ip": "203.0.113.90",
+    "country": "GB"
+  },
+  "actors": {
+    "fraudster": {
+      "device": "D-GEN-1",
+      "ip": "198.51.100.90",
+      "country": "GB"
+    }
+  },
+  "steps": [
+    {
+      "after": "0m",
+      "type": "PasswordReset",
+      "as": "fraudster"
+    },
+    {
+      "after": "1h5m",
+      "type": "MfaEnrolled",
+      "as": "fraudster"
+    },
+    {
+      "after": "1d",
+      "type": "BankDetailsChanged",
+      "as": "fraudster"
+    },
+    {
+      "after": "8d1h",
+      "type": "SaleRequested",
+      "as": "fraudster"
+    }
+  ]
+}

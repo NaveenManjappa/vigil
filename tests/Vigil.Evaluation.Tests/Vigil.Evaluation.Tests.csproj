@@ -14,6 +14,8 @@
     <!-- Evaluated against the shipped rules file, so the metrics are those the report would show. -->
     <None Include="..\..\config\rules.v1.json" Link="config\rules.v1.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\config\rules.v2.json" Link="config\rules.v2.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The committed Generated Scenarios, so a test proves the report will list a Blind Spot. -->
+    <None Include="..\..\datasets\generated\*.json" LinkBase="datasets\generated" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

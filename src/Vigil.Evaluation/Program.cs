@@ -11,7 +11,7 @@ using Vigil.Simulator;
 using Vigil.Simulator.Scenarios;
 
 // [--seed 42] [--holders 1000] [--rules-off config/rules.v1.json] [--rules-on config/rules.v2.json] [--out eval-reports]
-//   [--llm Fake|AzureOpenAI] [--agent-sample 20]
+//   [--llm Fake|AzureOpenAI] [--agent-sample 20]: also dry-runs datasets/generated/ for Blind Spots
 // scenario <file> [--rules config/rules.v2.json]
 // The default run needs no API and no Postgres. With the default Fake LLM it is free to run any time (PROJECT.md
 // Section 10.3); only --llm AzureOpenAI spends, and only on the Agent Sample (ADR-0016). Graph on needs Docker.
@@ -29,9 +29,40 @@ var offPath = Option("--rules-off") ?? Path.Combine("config", "rules.v1.json");
 var onPath = Option("--rules-on") ?? Path.Combine("config", "rules.v2.json");
 var outFolder = Option("--out") ?? "eval-reports";
 var agentSampleSize = int.Parse(Option("--agent-sample") ?? $"{AgentSample.AgentSampleSize}");
+var generatedFolder = Path.Combine("datasets", "generated");
 // --rules once chose the only Rules Version; ignoring it now would quietly report the defaults instead.
-if (args.FirstOrDefault() != "scenario" && args.Contains("--rules"))
+if (args.FirstOrDefault() is not ("scenario" or "generate-scenarios") && args.Contains("--rules"))
     throw new ArgumentException("The full evaluation takes --rules-off and --rules-on; --rules is for the scenario dry run.");
+
+// generate-scenarios [--count 5] [--rules config/rules.v2.json] [--llm Fake|AzureOpenAI] [--out datasets/generated]
+// One call to the Scenario Generator; what it keeps is written for review and committed, and every later evaluation
+// run dry-runs it for Blind Spots.
+if (args.FirstOrDefault() == "generate-scenarios")
+{
+    var rulesPath = Option("--rules") ?? Path.Combine("config", "rules.v2.json");
+    var folder = Option("--out") ?? generatedFolder;
+    var examples = Directory.GetFiles("scenarios", "*.json").Order(StringComparer.Ordinal).ToList();
+    var existing = Scenario.LoadAll("scenarios").Concat(GeneratedScenarios.LoadAll(folder)).ToList();
+
+    await using var generatorServices = Llm(Option("--llm") ?? nameof(LlmProvider.Fake));
+    var prices = generatorServices.GetRequiredService<LlmOptions>();
+    var generated = await new ScenarioGenerator(generatorServices.GetRequiredService<IChatClient>()).GenerateAsync(
+        int.Parse(Option("--count") ?? "5"), File.ReadAllText(rulesPath), [.. examples.Select(File.ReadAllText)], existing,
+        CancellationToken.None);
+
+    Directory.CreateDirectory(folder);
+    foreach (var kept in generated.Result.Kept)
+    {
+        var path = Path.Combine(folder, $"{kept.Scenario.Name}.json");
+        File.WriteAllText(path, kept.Json + "\n");
+        Console.WriteLine($"Wrote {path}");
+    }
+    foreach (var reason in generated.Result.Rejected)
+        Console.WriteLine($"Rejected {reason}");
+    Console.WriteLine($"{prices.Provider}: {generated.Result.Kept.Count} kept, {generated.Result.Rejected.Count} rejected, " +
+        $"{generated.InputTokens + generated.OutputTokens} tokens, £{prices.CostOf(generated.InputTokens, generated.OutputTokens)}");
+    return;
+}
 
 // Printed rather than written to eval-reports/: a dry run is for trying a journey or a rule change live, not for comparing runs.
 if (args.FirstOrDefault() == "scenario")
@@ -80,7 +111,9 @@ var agents = await AgentEvaluator.RunAsync(sample, dataset, graph is null ? null
 var run = new EvaluationRun($"{DateTime.UtcNow:yyyyMMdd'T'HHmmss'Z'}-{offRules.Version}-{onRules.Version}-seed{seed}", seed, holders, datasetPath);
 Directory.CreateDirectory(outFolder);
 var reportPath = Path.Combine(outFolder, $"{run.RunId}.md");
-File.WriteAllText(reportPath, Report.Render(run, offResult, onResult, agents));
+// Against the graph-on Rules Version, the one the API runs, so a Blind Spot is one production has today.
+var blindSpots = BlindSpots.Find(GeneratedScenarios.LoadAll(generatedFolder), onRules);
+File.WriteAllText(reportPath, Report.Render(run, offResult, onResult, agents, blindSpots));
 
 Console.WriteLine($"Wrote {reportPath}");
 foreach (var result in new[] { offResult, onResult })
@@ -91,6 +124,7 @@ Console.WriteLine($"agents ({llm.Provider}{(agents.IsMeaningful ? "" : ", not me
     $"Evidence Grounding {agents.EvidenceGrounding.Count}/{agents.EvidenceGrounding.Of}, " +
     $"Verdict Agreement {agents.VerdictAgreement.Count}/{agents.VerdictAgreement.Of}, " +
     $"{agents.Investigations.Sum(i => i.Tokens)} tokens, £{agents.Investigations.Sum(i => i.Cost)}");
+Console.WriteLine($"Blind Spots: {blindSpots.BlindSpots.Count} of {blindSpots.Fraud} fraud Generated Scenarios never reached High on {blindSpots.RulesVersion}");
 
 // The API's LLM wiring (ADR-0009), configured from environment variables such as Llm__Endpoint, Llm__Deployment and
 // Llm__ApiKey. The prices default to the API's appsettings.json, so the £ figures match its token log.

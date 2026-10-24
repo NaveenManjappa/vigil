@@ -68,6 +68,18 @@ The dry run uses the API's rules, `config/rules.v2.json`, but has no graph, so i
 
 To try a rule change, edit a copy of the rules file and pass it with `--rules my-rules.json`. The scenario stays the same and only the verdict changes. Run the full evaluation with it as `--rules-on my-rules.json` to see what the change does to detection and false-positive rates.
 
+### Find Blind Spots
+
+The Scenario Generator agent is a red team. It reads the rules file and the Scenarios in `scenarios/`, then writes labelled Generated Scenarios of fraud the rules would miss. Each one is checked by the strict Scenario parser, must carry a `label` (`{ "kind": "Ato", "intent": "..." }`), and is kept only if its shape (event types in order, with the gaps rounded to the hour) is new. Kept Scenarios go to `datasets/generated/`, which is committed:
+
+```bash
+dotnet run --project src/Vigil.Evaluation -- generate-scenarios --count 5 --llm AzureOpenAI
+# Wrote datasets/generated/<name>.json
+# AzureOpenAI: 4 kept, 1 rejected, ... tokens, £...
+```
+
+It makes one LLM call, and `--count` is capped at 10. With the default `--llm Fake` it writes one scripted placeholder. Every evaluation run dry-runs the Generated Scenarios against `--rules-on`, and the report's Blind Spots section lists each fraud one that never reaches High.
+
 Without `--scenario`, the simulator posts every shipped Scenario in order of its first event, so the earlier D-77 Accounts are in the graph before Margaret's takeover arrives. To post one to the running API, with the AppHost up, point the simulator at the API yourself, because outside Aspire it has no service discovery:
 
 ```bash
@@ -167,7 +179,7 @@ API tests start throwaway Postgres and Neo4j containers via Testcontainers, so D
 | `src/Vigil.Infrastructure` | EF Core event and alert stores, migrations |
 | `src/Vigil.Api` | Ingestion, timeline, alert, case and rules endpoints |
 | `src/Vigil.Simulator` | Posts Scenario files; the seeded Persona Dataset generator |
-| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on and Agent Sample markdown report out; `scenario` dry run |
+| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on, Agent Sample and Blind Spot markdown report out; `scenario` dry run; `generate-scenarios` (Scenario Generator) |
 | `tests/Vigil.Detection.Tests` | Detection tests against the shipped rules file |
 | `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, a Ring flagged only with the graph on, the seed-42 known misses, the Agent Sample, Evidence Grounding and Verdict Agreement (Fake LLM), the report |
 | `tests/Vigil.Simulator.Tests` | Dataset generator tests (determinism, Persona mix, slow-burn spacing) and Scenario file loading |
