@@ -8,8 +8,9 @@ namespace Vigil.Agents;
 /// <summary>
 /// The free provider for Development, tests and CI. When it is given the Investigator's tools it plays a scripted
 /// Investigator: one graph tool call, then a Finding citing the refs it was shown, so the free demo still shows tool
-/// calling in the trace. When asked for a Review it plays a Reviewer that approves. When asked for Generated Scenarios
-/// it writes one fraud journey that waits out R1's Window. Anything else gets a fixed reply.
+/// calling in the trace. When asked for a Review it plays a Reviewer that approves, and when asked for a Judgement it
+/// plays an evaluation Judge that scores every criterion 3. When asked for Generated Scenarios it writes one fraud
+/// journey that waits out R1's Window. Anything else gets a fixed reply.
 /// </summary>
 public sealed partial class FakeChatClient : IChatClient
 {
@@ -25,8 +26,9 @@ public sealed partial class FakeChatClient : IChatClient
     {
         var history = messages.ToList();
         var isInvestigator = options?.Tools?.Any(t => t.Name == GraphTool) == true;
-        var reply = IsReviewer(options) ? new ChatMessage(ChatRole.Assistant, """{"approved":true,"reasons":[]}""")
-            : IsScenarioGenerator(options) ? new ChatMessage(ChatRole.Assistant, GeneratedScenario)
+        var reply = Asks(options, "approved") ? new ChatMessage(ChatRole.Assistant, """{"approved":true,"reasons":[]}""")
+            : Asks(options, "groundedClaims") ? new ChatMessage(ChatRole.Assistant, Judgement)
+            : Asks(options, "scenarios") ? new ChatMessage(ChatRole.Assistant, GeneratedScenario)
             : !isInvestigator ? new ChatMessage(ChatRole.Assistant, "Fake provider: no model was called.")
             : history.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Any() ? new ChatMessage(ChatRole.Assistant, Finding(history))
             : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("fake-call-1", GraphTool)]);
@@ -38,15 +40,20 @@ public sealed partial class FakeChatClient : IChatClient
         });
     }
 
-    // Recognised by the Review contract it is asked to fill, not by prompt wording, so a new prompt version still works.
-    private static bool IsReviewer(ChatOptions? options) => AsksFor(options, "approved");
-
-    private static bool AsksFor(ChatOptions? options, string property) =>
+    // The Reviewer, the evaluation Judge and the Scenario Generator are recognised by the contract they are asked to
+    // fill (a Review has "approved", a Judgement "groundedClaims", a generator reply "scenarios"), not by prompt
+    // wording, so a new prompt version still works.
+    private static bool Asks(ChatOptions? options, string property) =>
         options?.ResponseFormat is ChatResponseFormatJson { Schema: { } schema }
         && schema.TryGetProperty("properties", out var properties)
         && properties.TryGetProperty(property, out _);
 
-    private static bool IsScenarioGenerator(ChatOptions? options) => AsksFor(options, "scenarios");
+    private const string Judgement = """
+        {"groundedClaims":{"score":3,"reason":"Fake provider: no model judged this Finding."},
+         "soundReasoning":{"score":3,"reason":"Fake provider: no model judged this Finding."},
+         "proportionateRecommendation":{"score":3,"reason":"Fake provider: no model judged this Finding."},
+         "clarity":{"score":3,"reason":"Fake provider: no model judged this Finding."}}
+        """;
 
     // Labelled as the Fake's own, so it is never mistaken for a red-team finding: a real run replaces it. The gaps
     // sit just outside R1's 60-minute and R4's 7-day Windows, so only R0's first sighting scores.

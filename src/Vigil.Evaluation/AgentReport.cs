@@ -38,6 +38,7 @@ public static class AgentReport
         md.AppendLine();
 
         AppendMetrics(md, agents);
+        AppendJudge(md, agents);
         AppendSample(md, agents);
     }
 
@@ -64,6 +65,38 @@ public static class AgentReport
         md.AppendLine();
     }
 
+    private static void AppendJudge(StringBuilder md, AgentEvaluation agents)
+    {
+        var judged = agents.Investigations.Where(i => i.Judged is not null).ToList();
+        var means = agents.JudgeMeans;
+
+        md.AppendLine($"### Judge ({Judge.PromptVersion})");
+        md.AppendLine();
+        md.AppendLine("Each Finding scored 1 (poor) to 5 (excellent) on four criteria, against the same masked evidence the " +
+            "Investigator saw. The Judge uses the Investigator's deployment, so it may favour its own model's style " +
+            "(self-preference bias): read these scores as a comparison between runs, not as an absolute grade.");
+        md.AppendLine();
+        md.AppendLine("| Criterion | Mean |");
+        md.AppendLine("|---|---|");
+        md.AppendLine($"| Grounded claims | {Mean(means.GroundedClaims)} |");
+        md.AppendLine($"| Sound reasoning | {Mean(means.SoundReasoning)} |");
+        md.AppendLine($"| Proportionate recommendation | {Mean(means.ProportionateRecommendation)} |");
+        md.AppendLine($"| Clarity | {Mean(means.Clarity)} |");
+        md.AppendLine();
+        md.AppendLine($"Judged: {Report.Cell(agents.JudgedRate)} Findings, {Tokens(judged.Sum(i => i.JudgeTokens))} tokens, " +
+            $"£{Pounds(judged.Sum(i => i.JudgeCost))}. Not in the cost per Investigation, since production never runs the Judge.");
+        md.AppendLine();
+        if (judged.Count == 0) return;
+
+        // The reasons are what make a score checkable, so each is given beside it.
+        md.AppendLine("| Account | Grounded claims | Sound reasoning | Proportionate recommendation | Clarity |");
+        md.AppendLine("|---|---|---|---|---|");
+        foreach (var investigation in judged)
+            md.AppendLine($"| {investigation.Sampled.Account.AccountId} | " +
+                $"{string.Join(" | ", investigation.Judged!.Judgement.Scores.Select(s => $"{s.Score}: {Escape(s.Reason)}"))} |");
+        md.AppendLine();
+    }
+
     // One list, so a per-Finding measure is one more entry here rather than a second table to keep in step.
     private static readonly List<(string Header, Func<InvestigatedAccount, string> Cell)> SampleColumns =
     [
@@ -79,6 +112,9 @@ public static class AgentReport
         ("Reviews", i => i.Outcome.Attempts.Count == 0 ? "—"
             : string.Join(", ", i.Outcome.Attempts.Select(a => a.Approved switch { true => "approved", false => "rejected", null => "invalid" }))),
         ("Review Flag", i => i.Outcome.ReviewFlagged ? "yes" : "no"),
+        // Grounded claims / Sound reasoning / Proportionate recommendation / Clarity, in the Judge section's order.
+        ("Judge G/R/P/C", i => i.Judged is { } judged ? string.Join("/", judged.Judgement.Scores.Select(s => s.Score))
+            : i.Outcome.Finding is null ? "—" : "unjudged"),
         ("Tokens", i => Tokens(i.Tokens)),
         ("£", i => Pounds(i.Cost)),
         ("Seconds", i => Seconds(i.Duration.TotalSeconds)),
@@ -94,6 +130,11 @@ public static class AgentReport
             md.AppendLine($"| {string.Join(" | ", SampleColumns.Select(c => c.Cell(investigation)))} |");
         md.AppendLine();
     }
+
+    private static string Mean(double? mean) => mean?.ToString("0.0", Invariant) ?? "—";
+
+    // A reason is the model's free text, so a pipe or line break in it would break the table.
+    private static string Escape(string text) => text.Replace("|", "\\|").ReplaceLineEndings(" ");
 
     private static string YesNo(bool? value) => value switch { true => "yes", false => "no", null => "—" };
 

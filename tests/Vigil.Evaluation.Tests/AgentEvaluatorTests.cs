@@ -53,6 +53,53 @@ public sealed class AgentEvaluatorTests
     }
 
     [Fact]
+    public async Task The_Judge_scores_each_final_Finding_and_the_mean_is_taken_per_criterion()
+    {
+        var chat = new ScriptedChatClient()
+            .Writes(Finding("LikelyAccountTakeover", "E-1")).Writes(Finding("LikelyGenuine", "E-1"))
+            .Judges(Judgement(grounded: 5, reasoning: 4, recommendation: 2, clarity: 3))
+            .Judges(Judgement(grounded: 4, reasoning: 4, recommendation: 5, clarity: 2));
+
+        var result = await RunAsync(chat, Ato, NearMiss);
+
+        Assert.All(result.Investigations, i => Assert.NotNull(i.Judged));
+        Assert.Equal(new Rate(2, 2), result.JudgedRate);
+        Assert.Equal(4.5, result.JudgeMeans.GroundedClaims);
+        Assert.Equal(4.0, result.JudgeMeans.SoundReasoning);
+        Assert.Equal(3.5, result.JudgeMeans.ProportionateRecommendation);
+        Assert.Equal(2.5, result.JudgeMeans.Clarity);
+    }
+
+    [Fact]
+    public async Task The_Judges_tokens_are_kept_apart_from_the_Investigations()
+    {
+        var chat = new ScriptedChatClient().Writes(Finding("LikelyAccountTakeover", "E-1"));
+
+        var investigated = Assert.Single((await RunAsync(chat, Ato)).Investigations);
+
+        Assert.Equal(2_200, investigated.Tokens);
+        Assert.Equal(1_100, investigated.JudgeTokens);
+        Assert.Equal(0.00042m, investigated.JudgeCost);
+    }
+
+    [Fact]
+    public async Task A_Finding_the_Judge_fails_on_is_left_out_of_the_means_and_a_failed_Investigation_is_never_judged()
+    {
+        var chat = new ScriptedChatClient()
+            .Fails(new HttpRequestException("503 Service Unavailable"))
+            .Writes(Finding("LikelyGenuine", "E-1")).Writes(Finding("LikelyAccountTakeover", "E-1"))
+            .JudgeFails(new HttpRequestException("429 Too Many Requests"))
+            .Judges(Judgement(2, 2, 2, 2));
+        var third = Account("ACC-THIRD", new Vigil.Domain.Datasets.Label(Vigil.Domain.Datasets.Persona.AtoFraudster, Vigil.Domain.Datasets.FraudKind.Ato), false);
+
+        var result = await RunAsync(chat, Ato, NearMiss, third);
+
+        Assert.Equal(2, chat.JudgeMessages.Count);
+        Assert.Equal(new Rate(1, 2), result.JudgedRate);
+        Assert.Equal(2.0, result.JudgeMeans.Clarity);
+    }
+
+    [Fact]
     public async Task A_failed_Investigation_is_counted_but_left_out_of_the_Finding_metrics()
     {
         var chat = new ScriptedChatClient().Fails(new HttpRequestException("503 Service Unavailable")).Writes(Finding("LikelyGenuine", "E-1"));
