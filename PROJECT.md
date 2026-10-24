@@ -397,6 +397,7 @@ LIMIT 25
 | House mover | Address + phone change, same device | Genuine | Low |
 | New phone | Password reset + MFA enrol (legit) | Genuine | Medium (realistic false-positive pressure) |
 | Active trader | Frequent sales, stable details | Genuine | Low |
+| Travelling holder | Abroad on a new device: password reset + MFA enrol + phone change (legit) | Genuine | High (false positive the feedback loop learns from; added in Stage 4) |
 | ATO fraudster | Reset → MFA → email → bank → sale | Fraud (ATO) | High/Critical before bank change |
 | Registration fraudster | Register → bank details → sale | Fraud (Registration) | High |
 | Fraud ring | 5 accounts sharing device/IP/bank account | Fraud (Ring) | Graph rules lift to High |
@@ -612,6 +613,8 @@ Each stage ends with a **"Done when"** checklist and a short **"Explain it"** li
 - Evaluation harness with all metrics in 10.3, including evidence grounding and LLM-as-judge on a sample.
 - Analyst decision capture → rule-tuning report.
 - Docs: `architecture.md`, ADR-001…013, `runbook.md`, `industrialisation.md`.
+
+> **Stage 4 decisions (grill session, 2026-10-24):** Evaluation runs the agents in-process through the same `InvestigationLoop`, on a seeded Agent Sample of 20 Flagged Accounts plus up to a quarter Near-misses, with Fake as the free default and `--llm AzureOpenAI` for a real run; the LLM wiring moves from the API into `Vigil.Agents` so both hosts share it. Evidence Grounding is measured on first-attempt Findings, beside Reviewer rejection and Review Flag rates, Verdict Agreement with the Label and cost/latency per Investigation; an evaluation-only Judge (`judge.v1`) scores reasoning on four 1–5 criteria. The Scenario Generator is a red team: it sees the rules, writes labelled Generated Scenarios to `datasets/generated/` from its own command (committed), and evaluation lists every fraud one that never reaches High as a Blind Spot. A genuine Travelling holder Persona (Section 10.1) reaches High, so Analyst Decisions include false positives. A Stand-in Analyst simulator command decides Cases from their Labels through the API, and a `tune` command builds the Rule-Tuning Report from those decisions in Postgres, suggesting halved weights for Rules below 50% precision, each with a What-if over the Dataset; it never writes a rules file. See GLOSSARY.md, ADR-0012 and ADR-0016.
 
 **Done when**
 - [ ] One command produces an evaluation report with all metrics, rules version and prompt version.
