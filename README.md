@@ -6,11 +6,17 @@ Vigil watches investor-portal account journeys and flags account takeover and re
 
 ## Status
 
-**Stage 0 — Foundations.** Aspire runs Postgres, Neo4j and the API. Portal Events are ingested idempotently and the simulator replays two scripted scenarios. Detection starts in Stage 1.
+Stages 0–4 are built. [docs/architecture.md](docs/architecture.md) explains how the parts fit together.
 
-**Stage 1 — Deterministic MVP (in progress).** Each ingest scores its Accounts against `config/rules.v1.json` and stores an Alert with Rule Hits and evidence EventIds; an Alert reaching High opens a Case: `GET /alerts?band=`, `GET /alerts/{id}`, `GET /cases?status=`, `GET /rules`. A rules-only evaluation scores a seeded, labelled Dataset and writes a report to `eval-reports/`.
+**Stage 0 — Foundations.** Aspire runs Postgres, Neo4j and the API. Portal Events are ingested idempotently into an append-only event store, and the simulator replays scripted Scenarios.
+
+**Stage 1 — Deterministic MVP.** Each ingest scores its Accounts against versioned rules and stores an Alert per Risk Episode, with Rule Hits and evidence EventIds. An Alert reaching High opens a Case. Endpoints: `GET /alerts?band=`, `GET /alerts/{id}`, `GET /cases?status=`, `GET /rules`. A rules-only evaluation scores a seeded, labelled Dataset and writes a report to `eval-reports/`.
+
+**Stage 2 — Knowledge graph.** Every Portal Event is projected into Neo4j inside the ingest request. The Graph Rules (G1 shared bank account, G2 known-fraud proximity, G3 ring indicator) feed the same Detector, and ingestion re-scores the Neighbours a new link touches. `rules.v2.json`, which the API runs, adds the Graph Rules to v1. The evaluation reports graph off against graph on.
 
 **Stage 3 — Agentic investigation with MAF.** A Case opened by a High Alert is investigated in the background by a Microsoft Agent Framework workflow: an Investigator agent with three Account-bound tools, code validation of its Evidence Refs, and a Reviewer agent, all on masked Pseudonyms. The workflow pauses for an Analyst Decision, checkpointed in Postgres, and Act records the Intervention and Audit Entries. See [Margaret's Investigation](#margarets-investigation-stage-3-demo).
+
+**Stage 4 — Training agents, evaluation, feedback.** One evaluation command scores the rules with the graph off and on, runs the agents on a seeded Agent Sample with a Judge, and lists the Blind Spots a red-team Scenario Generator found. A Stand-in Analyst decides Cases through the API, and a Rule-Tuning Report suggests weight changes from those decisions for a human to approve. See the [Stage 4 demo](#evaluation-and-feedback-stage-4-demo) and the [runbook](docs/runbook.md).
 
 ## Quick start
 
@@ -37,16 +43,7 @@ dotnet run --project src/Vigil.Simulator -- generate --seed 42 --holders 1000
 # Wrote datasets/seed-42-holders-1000.jsonl
 ```
 
-To score that Dataset with the graph off (v1) and on (v2) side by side (no API, no Postgres, no LLM, so it is free to run any time; Docker must be running):
-
-```bash
-dotnet run --project src/Vigil.Evaluation
-# Wrote eval-reports/<run ID>.md
-# v1: detection rate 17/30, false-positive rate 0/970, early-detection rate 9/9
-# v2: detection rate 22/30, false-positive rate 0/970, early-detection rate 9/9
-```
-
-It generates the Dataset first if the file is missing. v1 is scored in memory. For v2 it starts a throwaway Neo4j container, so the demo graph is never touched, and replays the Dataset's events into it in OccurredAt order, so no Graph Rule sees a link that formed after the event being scored (about a minute for 1,000 holders). Options: `--seed 42`, `--holders 1000`, `--rules-off config/rules.v1.json`, `--rules-on config/rules.v2.json`, `--out eval-reports`. The report gives detection rate, false-positive rate, per-rule precision and early-detection rate, plus a per-Persona breakdown, for both Rules Versions, and records the run ID and seed. See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
+To score it with the rules and run the agents on a sample, see the [Stage 4 demo](#evaluation-and-feedback-stage-4-demo).
 
 ### Try a scenario
 
@@ -145,6 +142,45 @@ In the dashboard's **Traces** view, Margaret's ingest request is one trace: `POS
 
 **Budget warning:** every new Case now costs real tokens. `Investigation:DailyLimit` (default 20 per UTC day) caps Investigations started; Cases over it stay Open, marked not investigated, and are not re-queued. Set `Investigation:Enabled` to `false` before replaying a large Dataset into the API. Each LLM call logs its tokens and estimated £, so spend can be reconciled call by call.
 
+## Evaluation and feedback (Stage 4 demo)
+
+Everything here runs with the free Fake LLM by default. The [runbook](docs/runbook.md) has every option, the Azure runs and the common failures; [docs/architecture.md](docs/architecture.md#evaluation-and-feedback-loop) explains how the loop fits together.
+
+**1. Evaluate the rules and the agents.** With Docker running, and no AppHost needed:
+
+```bash
+dotnet run --project src/Vigil.Evaluation
+# Wrote eval-reports/<run ID>.md
+# v1: detection rate 17/30, false-positive rate 20/970, early-detection rate 9/9
+# v2: detection rate 22/30, false-positive rate 20/970, early-detection rate 9/9
+# agents (Fake, not meaningful): Evidence Grounding 25/25, Verdict Agreement 10/25, 0 tokens, £0.0000; Judge 25/25 judged, 0 tokens
+# Blind Spots: 1 of 1 fraud Generated Scenarios never reached High on v2
+```
+
+Open the report in `eval-reports/`. Things to point at:
+
+- **Graph off vs on.** v2's Graph Rules lift the five Fraud ring Accounts from Medium to Critical, so detection rises from 17 to 22 of 30. The slow-burn fraudster stays a known miss either way.
+- **False positives.** The 20 Travelling holders reach High under both versions: the false positives the feedback loop learns from.
+- **Agents.** 25 Investigations (20 Flagged Accounts plus 5 Near-misses) with Evidence Grounding, Verdict Agreement, Reviewer rejection and Review Flag rates, cost per Investigation, and the Judge's four scores. With Fake they only show the harness runs; `--llm AzureOpenAI` gives real ones for the cost of the Agent Sample alone.
+- **Blind Spots.** Generated Scenarios of fraud that never reaches High.
+
+**2. Find Blind Spots.** The Scenario Generator agent reads the rules and writes Generated Scenarios of fraud they would miss to `datasets/generated/`. It needs Azure for real output; the committed one is a Fake-written placeholder that the first Azure run replaces ([runbook](docs/runbook.md#generate-scenarios-find-blind-spots)):
+
+```bash
+dotnet run --project src/Vigil.Evaluation -- generate-scenarios --count 5 --llm AzureOpenAI
+```
+
+**3. Learn from decisions.** With the AppHost up, `Investigation:DailyLimit` raised and `Llm:Provider` Fake, post the Dataset to the API, let the Stand-in Analyst decide every Case from its Label, then build the Rule-Tuning Report from Postgres ([runbook](docs/runbook.md#the-stand-in-analyst-and-the-rule-tuning-report) for the setup):
+
+```bash
+services__api__http__0=http://localhost:5107 dotnet run --project src/Vigil.Simulator -- post-dataset
+services__api__http__0=http://localhost:5107 dotnet run --project src/Vigil.Simulator -- decide --by-label
+dotnet run --project src/Vigil.Evaluation -- tune --connection "<the api's ConnectionStrings__vigil>"
+# Wrote eval-reports/rule-tuning-<run ID>.md
+```
+
+The report gives each Rule's precision from the decisions, suggests halving the points of a Rule that is wrong more often than not, and shows each suggestion's What-if over the Dataset. It never edits a rules file: a person copies the rules to a new version, re-runs step 1 with `--rules-off config/rules.v2.json --rules-on config/rules.v3.json`, and decides (ADR-0012).
+
 ## Tests
 
 ```bash
@@ -159,18 +195,27 @@ API tests start throwaway Postgres and Neo4j containers via Testcontainers, so D
 |---|---|
 | `src/Vigil.AppHost` | Aspire orchestration |
 | `src/Vigil.ServiceDefaults` | OpenTelemetry, health checks, resilience |
-| `src/Vigil.Domain` | Portal Event, rule set, Rule Hit and Alert records |
-| `src/Vigil.Detection` | Rules engine: timeline + rule set → Alerts (pure) |
-| `src/Vigil.Infrastructure` | EF Core event and alert stores, migrations |
-| `src/Vigil.Api` | Ingestion, timeline, alert, case and rules endpoints |
-| `src/Vigil.Simulator` | Posts Scenario files; the seeded Persona Dataset generator |
-| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on markdown report out; `scenario` dry run |
+| `src/Vigil.Domain` | Shared records: Portal Event, rule set, Rule Hit, Alert, Case status, Confirmed Fraud, Dataset and Label |
+| `src/Vigil.Detection` | Rules engine: timeline + rule set + stored Alerts + graph hits → Alerts (pure) |
+| `src/Vigil.Graph` | Neo4j Projection, Graph Rules G1–G3 as Cypher queries, the Neighbourhood for the Investigator |
+| `src/Vigil.Agents` | The Investigation: Investigator and tools, Reviewer, validation, masking, Evidence Refs, MAF workflow, shared LLM wiring |
+| `src/Vigil.Infrastructure` | EF Core stores (events, Alerts, Cases, decisions, Interventions, Confirmed Frauds, Audit Entries, workflow checkpoints), migrations |
+| `src/Vigil.Api` | Ingestion; timeline, alert, case, decision, audit and rules endpoints; Case queue and Investigation worker; `rebuild-graph` |
+| `src/Vigil.Simulator` | Posts Scenario files; the seeded Persona Dataset generator; `post-dataset` and the Stand-in Analyst (`decide --by-label`) |
+| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on, Agent Sample and Blind Spot markdown report out; `scenario` dry run; `generate-scenarios` (Scenario Generator); `tune` (Rule-Tuning Report) |
 | `tests/Vigil.Detection.Tests` | Detection tests against the shipped rules file |
-| `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, a Ring flagged only with the graph on, the seed-42 known misses, the report |
+| `tests/Vigil.Graph.Tests` | Projection and Graph Rule queries against a real Neo4j |
+| `tests/Vigil.Agents.Tests` | Masking, Evidence Refs, validation, the Investigation loop and workflow paths with a scripted LLM |
+| `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, a Ring flagged only with the graph on, the seed-42 known misses, the Agent Sample, Evidence Grounding and Verdict Agreement (Fake LLM), the Judge's parsing and means, the report |
 | `tests/Vigil.Simulator.Tests` | Dataset generator tests (determinism, Persona mix, slow-burn spacing) and Scenario file loading |
-| `tests/Vigil.Api.Tests` | API tests against real Postgres |
-| `config/rules.v1.json` | Versioned rules, windows, points and band thresholds |
+| `tests/Vigil.Api.Tests` | API tests against real Postgres and Neo4j: ingestion, Cases, the Investigation queue and budget, decisions and Act, graph rebuild, telemetry, the Stand-in Analyst |
+| `config/rules.v1.json`, `rules.v2.json` | Versioned rules, windows, points and band thresholds; v2 adds the Graph Rules and is what the API runs |
+| `config/prompts` | Versioned agent prompts: Investigator, Reviewer, Judge, Scenario Generator |
 | `scenarios` | Scenario files (JSON), posted by the simulator and dry-run by evaluation |
-| `eval-reports` | Generated evaluation reports |
-| `docs/architecture.md` | Components, data flow, Margaret's case through Stage 1 |
+| `datasets/generated` | Generated Scenarios, committed for review; Datasets themselves are generated locally and not committed |
+| `eval-reports` | Generated evaluation and Rule-Tuning reports |
+| `docs/architecture.md` | Components, data model, ingestion and detection, the graph, the Investigation, decisions, Margaret end to end, the evaluation and feedback loop |
+| `docs/graph-primer.md` | The Cypher Vigil uses, on Vigil's own data |
+| `docs/runbook.md` | Run, reset data, evaluations, the Stand-in and tune flow, common failures |
+| `docs/industrialisation.md` | MVP to production target state |
 | `docs/adr` | Architecture decisions |

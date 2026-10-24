@@ -25,4 +25,20 @@ public interface IInvestigationSource
 }
 
 /// <summary>What is normal for the Holder, so the Investigator can contrast a takeover with it.</summary>
-public sealed record HolderBaseline(IReadOnlyList<string> UsualCountries, IReadOnlyList<string> UsualDevices, double LoginsPerWeek);
+public sealed record HolderBaseline(IReadOnlyList<string> UsualCountries, IReadOnlyList<string> UsualDevices, double LoginsPerWeek)
+{
+    /// <summary>The baseline from an Account's timeline, counting only events before <paramref name="before"/>.</summary>
+    public static HolderBaseline From(IEnumerable<PortalEvent> timeline, DateTimeOffset before)
+    {
+        var usual = timeline.Where(e => e.OccurredAt < before).OrderBy(e => e.OccurredAt).ToList();
+        if (usual.Count == 0) return new HolderBaseline([], [], 0);
+
+        var logins = usual.Count(e => e.Type == EventType.LoginSucceeded);
+        // At least a week, so one login the day before the takeover does not read as a Holder who logs in daily.
+        var weeks = Math.Max(1, (before - usual[0].OccurredAt).TotalDays / 7);
+        return new HolderBaseline(MostUsedFirst(usual, e => e.Country), MostUsedFirst(usual, e => e.DeviceId), Math.Round(logins / weeks, 1));
+    }
+
+    private static List<string> MostUsedFirst(IEnumerable<PortalEvent> events, Func<PortalEvent, string?> valueOf) =>
+        [.. events.Select(valueOf).OfType<string>().CountBy(v => v).OrderByDescending(c => c.Value).ThenBy(c => c.Key).Select(c => c.Key)];
+}

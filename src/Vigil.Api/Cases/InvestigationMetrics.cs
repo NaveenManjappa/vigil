@@ -1,6 +1,5 @@
 using System.Diagnostics.Metrics;
 using Vigil.Agents;
-using Vigil.Api.Llm;
 using Vigil.Domain.Telemetry;
 
 namespace Vigil.Api.Cases;

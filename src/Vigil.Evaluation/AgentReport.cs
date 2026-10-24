@@ -1,0 +1,145 @@
+using System.Globalization;
+using System.Text;
+using static Vigil.Evaluation.Markdown;
+
+namespace Vigil.Evaluation;
+
+/// <summary>
+/// The report's agent section: the metrics over the Agent Sample, then one row per Investigation. Each part is its
+/// own method and each row's columns are one list, so a later measure adds a subsection or a column, not a rewrite.
+/// </summary>
+public static class AgentReport
+{
+    private static readonly CultureInfo Invariant = CultureInfo.InvariantCulture;
+
+    /// <summary>The header rows naming what produced the agent numbers, so two runs can be compared knowing what changed.</summary>
+    public static void AppendHeaderRows(StringBuilder md, AgentEvaluation agents)
+    {
+        md.AppendLine($"| Prompt Versions | {string.Join(", ", agents.PromptVersions)} |");
+        md.AppendLine($"| LLM | {agents.Provider}, model {agents.Model} |");
+    }
+
+    public static void AppendSection(StringBuilder md, EvaluationRun run, AgentEvaluation agents)
+    {
+        md.AppendLine("## Agents");
+        md.AppendLine();
+        if (!agents.IsMeaningful)
+        {
+            md.AppendLine("> **Not meaningful:** the Fake provider writes the same scripted Finding for every Account, so these " +
+                "numbers only show that the harness runs. Run with `--llm AzureOpenAI` for real ones.");
+            md.AppendLine();
+        }
+
+        var nearMisses = agents.Investigations.Count(i => i.Sampled.IsNearMiss);
+        var flagged = agents.Investigations.Count - nearMisses;
+        md.AppendLine($"{Count(agents.Investigations.Count, "Investigation", "Investigations")}: " +
+            $"{Count(flagged, "Flagged Account", "Flagged Accounts")} and {Count(nearMisses, "Near-miss", "Near-misses")}, " +
+            $"drawn with seed {run.Seed}. Each ran the API's Investigate, Validate and Review loop, one retry included, on " +
+            "the Dataset as it stood when its Case would have opened.");
+        md.AppendLine();
+
+        AppendMetrics(md, agents);
+        AppendJudge(md, agents);
+        AppendSample(md, agents);
+    }
+
+    private static void AppendMetrics(StringBuilder md, AgentEvaluation agents)
+    {
+        var investigations = agents.Investigations;
+        var count = Math.Max(1, investigations.Count);
+
+        md.AppendLine("### Metrics");
+        md.AppendLine();
+        md.AppendLine("| Metric | Definition | Value |");
+        md.AppendLine("|---|---|---|");
+        md.AppendLine($"| Evidence Grounding | first-attempt Findings whose cited Evidence Refs all exist ÷ first-attempt Findings; Investigations that failed before any Finding are left out of both | {Cell(agents.EvidenceGrounding)} |");
+        md.AppendLine($"| Verdict Agreement | Findings whose verdict fits the Label ÷ all Findings | {Cell(agents.VerdictAgreement)} |");
+        md.AppendLine($"| Verdict Agreement on Near-misses | Near-miss Findings saying LikelyGenuine or Inconclusive ÷ Near-miss Findings | {Cell(agents.NearMissAgreement)} |");
+        md.AppendLine($"| Reviewer rejection rate | Reviews that rejected the Finding ÷ all Reviews | {Cell(agents.ReviewerRejectionRate)} |");
+        md.AppendLine($"| Review Flag rate | Findings kept with the Review Flag ÷ all Findings | {Cell(agents.ReviewFlagRate)} |");
+        md.AppendLine($"| Investigations failed | Investigations that ended with no Finding ÷ all Investigations | {Cell(agents.FailureRate)} |");
+        md.AppendLine($"| Tokens per Investigation | mean, both agents, retries included | {Tokens((long)Math.Round(investigations.Sum(i => i.Tokens) / (double)count))} |");
+        md.AppendLine($"| Cost per Investigation | mean estimated £ at the configured prices | £{Pounds(investigations.Sum(i => i.Cost) / count)} |");
+        md.AppendLine($"| Seconds per Investigation | mean wall-clock time, Enrich to the last Review | {Seconds(investigations.Sum(i => i.Duration.TotalSeconds) / count)} |");
+        md.AppendLine();
+        md.AppendLine($"Total: {Tokens(investigations.Sum(i => i.Tokens))} tokens, £{Pounds(investigations.Sum(i => i.Cost))}.");
+        md.AppendLine();
+    }
+
+    private static void AppendJudge(StringBuilder md, AgentEvaluation agents)
+    {
+        var judged = agents.Investigations.Where(i => i.Judged is not null).ToList();
+        var means = agents.JudgeMeans;
+
+        md.AppendLine($"### Judge ({Judge.PromptVersion})");
+        md.AppendLine();
+        md.AppendLine("Each Finding scored 1 (poor) to 5 (excellent) on four criteria, against the same masked evidence the " +
+            "Investigator saw. The Judge uses the Investigator's deployment, so it may favour its own model's style " +
+            "(self-preference bias): read these scores as a comparison between runs, not as an absolute grade.");
+        md.AppendLine();
+        md.AppendLine("| Criterion | Mean |");
+        md.AppendLine("|---|---|");
+        md.AppendLine($"| Grounded claims | {Mean(means.GroundedClaims)} |");
+        md.AppendLine($"| Sound reasoning | {Mean(means.SoundReasoning)} |");
+        md.AppendLine($"| Proportionate recommendation | {Mean(means.ProportionateRecommendation)} |");
+        md.AppendLine($"| Clarity | {Mean(means.Clarity)} |");
+        md.AppendLine();
+        md.AppendLine($"Judged: {Cell(agents.JudgedRate)} Findings, {Tokens(judged.Sum(i => i.JudgeTokens))} tokens, " +
+            $"£{Pounds(judged.Sum(i => i.JudgeCost))}. Not in the cost per Investigation, since production never runs the Judge.");
+        md.AppendLine();
+        if (judged.Count == 0) return;
+
+        // The reasons are what make a score checkable, so each is given beside it.
+        md.AppendLine("| Account | Grounded claims | Sound reasoning | Proportionate recommendation | Clarity |");
+        md.AppendLine("|---|---|---|---|---|");
+        foreach (var investigation in judged)
+            md.AppendLine($"| {investigation.Sampled.Account.AccountId} | " +
+                $"{string.Join(" | ", investigation.Judged!.Judgement.Scores.Select(s => $"{s.Score}: {Escape(s.Reason)}"))} |");
+        md.AppendLine();
+    }
+
+    // One list, so a per-Finding measure is one more entry here rather than a second table to keep in step.
+    private static readonly List<(string Header, Func<InvestigatedAccount, string> Cell)> SampleColumns =
+    [
+        ("Account", i => i.Sampled.Account.AccountId),
+        ("Persona", i => $"{i.Sampled.Account.Label.Persona}"),
+        ("Label", i => i.Sampled.Account.Label.FraudKind?.ToString() ?? "Genuine"),
+        ("Sampled as", i => i.Sampled.IsNearMiss ? "Near-miss" : "Flagged"),
+        ("Alert", i => $"{i.Sampled.Alert.Score} {i.Sampled.Alert.Band}"),
+        ("Verdict", i => i.Outcome.Finding?.Verdict.ToString() ?? "failed"),
+        ("Agrees", i => YesNo(i.Agrees)),
+        ("Grounded", i => YesNo(i.Grounded)),
+        // Each Finding written, in order: "invalid" when the code check rejected it before the Reviewer saw it.
+        ("Reviews", i => i.Outcome.Attempts.Count == 0 ? "—"
+            : string.Join(", ", i.Outcome.Attempts.Select(a => a.Approved switch { true => "approved", false => "rejected", null => "invalid" }))),
+        ("Review Flag", i => i.Outcome.ReviewFlagged ? "yes" : "no"),
+        // Grounded claims / Sound reasoning / Proportionate recommendation / Clarity, in the Judge section's order.
+        ("Judge G/R/P/C", i => i.Judged is { } judged ? string.Join("/", judged.Judgement.Scores.Select(s => s.Score))
+            : i.Outcome.Finding is null ? "—" : "unjudged"),
+        ("Tokens", i => Tokens(i.Tokens)),
+        ("£", i => Pounds(i.Cost)),
+        ("Seconds", i => Seconds(i.Duration.TotalSeconds)),
+    ];
+
+    private static void AppendSample(StringBuilder md, AgentEvaluation agents)
+    {
+        md.AppendLine("### Agent Sample");
+        md.AppendLine();
+        md.AppendLine($"| {string.Join(" | ", SampleColumns.Select(c => c.Header))} |");
+        md.AppendLine($"|{string.Concat(SampleColumns.Select(_ => "---|"))}");
+        foreach (var investigation in agents.Investigations)
+            md.AppendLine($"| {string.Join(" | ", SampleColumns.Select(c => c.Cell(investigation)))} |");
+        md.AppendLine();
+    }
+
+    private static string Mean(double? mean) => mean?.ToString("0.0", Invariant) ?? "—";
+
+    private static string YesNo(bool? value) => value switch { true => "yes", false => "no", null => "—" };
+
+    private static string Tokens(long tokens) => tokens.ToString("N0", Invariant);
+
+    // An Investigation costs a fraction of a penny, which matters on a £5–10 budget, so up to five places are kept.
+    private static string Pounds(decimal pounds) => pounds.ToString("0.0####", Invariant);
+
+    private static string Seconds(double seconds) => seconds.ToString("0.0", Invariant);
+}

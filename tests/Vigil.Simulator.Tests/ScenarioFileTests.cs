@@ -1,3 +1,4 @@
+using Vigil.Domain.Datasets;
 using Vigil.Domain.Events;
 using Vigil.Domain.Fraud;
 using Vigil.Simulator.Scenarios;
@@ -155,5 +156,44 @@ public sealed class ScenarioFileTests
     {
         Assert.Throws<InvalidDataException>(() => Scenario.Parse(
             Json("""{ "after": "0m", "type": "LoginSucceeded" }""", extra: """ "confirmedFruad": "2026-09-14T12:00:00Z", """), "test.json"));
+    }
+    [Fact]
+    public void A_label_gives_the_fraud_kind_and_the_intent()
+    {
+        var scenario = Scenario.Parse(Json("""{ "after": "0m", "type": "PasswordReset", "as": "fraudster" }""",
+            extra: """ "label": { "kind": "Ato", "intent": "Resets the password and waits out R1." }, """), "test.json");
+
+        Assert.Equal(new ScenarioLabel(FraudKind.Ato, "Resets the password and waits out R1."), scenario.Label);
+        Assert.True(scenario.Label!.IsFraud);
+    }
+
+    [Fact]
+    public void A_Genuine_label_has_no_fraud_kind()
+    {
+        var scenario = Scenario.Parse(Json("""{ "after": "0m", "type": "LoginSucceeded" }""",
+            extra: """ "label": { "kind": "Genuine", "intent": "The holder logs in as usual." }, """), "test.json");
+
+        Assert.Equal(new ScenarioLabel(null, "The holder logs in as usual."), scenario.Label);
+        Assert.False(scenario.Label!.IsFraud);
+    }
+
+    [Fact]
+    public void A_scenario_without_a_label_has_none()
+    {
+        Assert.Null(Scenario.Parse(Json("""{ "after": "0m", "type": "LoginSucceeded" }"""), "test.json").Label);
+    }
+
+    [Theory]
+    [InlineData("""{ "kind": "Phishing", "intent": "x" }""", "Phishing")]
+    [InlineData("""{ "kind": "1", "intent": "x" }""", "\"1\"")]
+    [InlineData("""{ "kind": "Ato", "intent": " " }""", "intent")]
+    [InlineData("""{ "kind": "Ato", "intent": "one\ntwo" }""", "intent")]
+    public void A_bad_label_is_rejected_naming_the_file(string label, string culprit)
+    {
+        var error = Assert.Throws<InvalidDataException>(() => Scenario.Parse(
+            Json("""{ "after": "0m", "type": "LoginSucceeded" }""", extra: $" \"label\": {label}, "), "test.json"));
+
+        Assert.Contains("test.json", error.Message);
+        Assert.Contains(culprit, error.Message);
     }
 }

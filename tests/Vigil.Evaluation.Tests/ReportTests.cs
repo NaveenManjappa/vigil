@@ -17,6 +17,7 @@ public sealed class ReportTests
         Personas:
         [
             new(Persona.QuietHolder, false, 700, 0, Bands(low: 700)),
+            new(Persona.TravellingHolder, false, 20, 20, Bands(high: 20)),
             new(Persona.FraudRing, true, 5, 0, Bands(medium: 5)),
             new(Persona.SlowBurnFraudster, true, 8, 0, Bands(low: 8)),
         ]);
@@ -29,8 +30,9 @@ public sealed class ReportTests
         Personas =
         [
             Off.Personas[0],
+            Off.Personas[1],
             new(Persona.FraudRing, true, 5, 5, Bands(critical: 5)),
-            Off.Personas[2],
+            Off.Personas[3],
         ],
     };
 
@@ -75,5 +77,12 @@ public sealed class ReportTests
     {
         Assert.Contains("| FraudRing | Fraud | 5 | 0 / 5 | 5 / 5 | 0 / 5 / 0 / 0 | 0 / 0 / 0 / 5 | Graph rules lift to High |", Markdown);
         Assert.Contains("| SlowBurnFraudster | Fraud | 8 | 0 / 8 | 0 / 8 | 8 / 0 / 0 / 0 | 8 / 0 / 0 / 0 | Known miss |", Markdown);
+    }
+
+    [Fact]
+    public void The_report_expects_Travelling_holders_to_be_flagged_as_false_positives()
+    {
+        Assert.Contains("| TravellingHolder | Genuine | 20 | 20 / 20 | 20 / 20 | 0 / 0 / 20 / 0 | 0 / 0 / 20 / 0 | " +
+            "High (false positive) |", Markdown);
     }
 }

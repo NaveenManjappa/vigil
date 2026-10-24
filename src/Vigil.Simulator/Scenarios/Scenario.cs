@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Vigil.Domain.Datasets;
 using Vigil.Domain.Events;
 using Vigil.Domain.Fraud;
 
@@ -7,6 +8,15 @@ namespace Vigil.Simulator.Scenarios;
 
 /// <param name="After">The offset as the file wrote it, e.g. "1d5h", so a replay shows the author's own words.</param>
 public sealed record ScenarioStep(int Number, string After, string Actor, PortalEvent Event);
+
+/// <summary>What a Scenario is meant to show: fraud of one kind, or genuine behaviour, in one line of intent.</summary>
+/// <param name="FraudKind">Null for a genuine journey.</param>
+public sealed record ScenarioLabel(FraudKind? FraudKind, string Intent)
+{
+    public const string Genuine = "Genuine";
+
+    public bool IsFraud => FraudKind is not null;
+}
 
 /// <summary>
 /// A fixed, hand-scripted Account journey, read from a JSON file in scenarios/ so a new one can be written
@@ -28,13 +38,15 @@ public sealed partial class Scenario
     };
 
     private Scenario(
-        string name, string description, IReadOnlyList<PortalEvent> baseline, IReadOnlyList<ScenarioStep> steps, ConfirmedFraud? confirmedFraud)
+        string name, string description, IReadOnlyList<PortalEvent> baseline, IReadOnlyList<ScenarioStep> steps, ConfirmedFraud? confirmedFraud,
+        ScenarioLabel? label)
     {
         Name = name;
         Description = description;
         Baseline = baseline;
         Steps = steps;
         ConfirmedFraud = confirmedFraud;
+        Label = label;
     }
 
     public string Name { get; }
@@ -44,6 +56,9 @@ public sealed partial class Scenario
 
     /// <summary>Set when the file gives a <c>confirmedFraud</c> decision date; the simulator seeds it after posting the events.</summary>
     public ConfirmedFraud? ConfirmedFraud { get; }
+
+    /// <summary>Optional on a hand-written Scenario; a Generated Scenario always has one.</summary>
+    public ScenarioLabel? Label { get; }
 
     public IReadOnlyList<PortalEvent> Events() => [.. Baseline, .. Steps.Select(s => s.Event)];
 
@@ -106,7 +121,26 @@ public sealed partial class Scenario
         var confirmedFraud = file.ConfirmedFraud is { } decidedAt
             ? new ConfirmedFraud(file.AccountId, decidedAt, ConfirmedFraudSource.Seed)
             : null;
-        return new Scenario(file.Name, file.Description, baseline, steps, confirmedFraud);
+        return new Scenario(file.Name, file.Description, baseline, steps, confirmedFraud, file.Label is { } l ? ParseLabel(l, source) : null);
+    }
+
+    private static ScenarioLabel ParseLabel(LabelFile label, string source)
+    {
+        InvalidDataException Error(string problem) => new($"{source}, label: {problem}");
+
+        FraudKind? kind = null;
+        if (label.Kind != ScenarioLabel.Genuine)
+        {
+            // As for event types, a number or a combination would hide a typo behind another fraud kind.
+            if (int.TryParse(label.Kind, out _) || !Enum.TryParse<FraudKind>(label.Kind, out var parsed) || !Enum.IsDefined(parsed))
+                throw Error($"unknown kind \"{label.Kind}\"; use {string.Join(", ", Enum.GetNames<FraudKind>())} or {ScenarioLabel.Genuine}.");
+            kind = parsed;
+        }
+
+        // One line, so the report's Blind Spot table can show it as a cell.
+        if (string.IsNullOrWhiteSpace(label.Intent) || label.Intent.Contains('\n'))
+            throw Error("intent must be one non-empty line.");
+        return new ScenarioLabel(kind, label.Intent.Trim());
     }
 
     private static TimeSpan? Offset(string text)
@@ -129,7 +163,10 @@ public sealed partial class Scenario
         DateTimeOffset? Start = null,
         BaselineFile? Baseline = null,
         Dictionary<string, Actor>? Actors = null,
-        DateTimeOffset? ConfirmedFraud = null);
+        DateTimeOffset? ConfirmedFraud = null,
+        LabelFile? Label = null);
+
+    private sealed record LabelFile(string Kind, string Intent);
 
     private sealed record BaselineFile(string Device, string Ip, string Country, int Weeks = 13);
 

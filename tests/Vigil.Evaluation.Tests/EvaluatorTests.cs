@@ -92,4 +92,16 @@ public sealed class EvaluatorTests
         var ato = result.Personas.Single(p => p.Persona == Persona.AtoFraudster);
         Assert.Equal(ato.Accounts, ato.Flagged);
     }
+
+    [Fact]
+    public void On_the_seed_42_Dataset_every_Travelling_holder_peaks_at_High_so_FPR_is_not_zero()
+    {
+        var result = Evaluator.Evaluate(DatasetGenerator.Generate(seed: 42, holders: 1000), Rules);
+
+        // R0 10 + R1 30 + R2 20 = 60: exactly the High threshold, short of Critical.
+        var travellers = result.Personas.Single(p => p.Persona == Persona.TravellingHolder);
+        Assert.True(travellers.Accounts > 0);
+        Assert.Equal(travellers.Accounts, travellers.PeakBands[RiskBand.High]);
+        Assert.Equal(travellers.Accounts, result.FalsePositiveRate.Count);
+    }
 }

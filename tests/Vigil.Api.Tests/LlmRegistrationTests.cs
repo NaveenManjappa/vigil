@@ -1,7 +1,7 @@
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Vigil.Api.Llm;
+using Vigil.Agents;
 
 namespace Vigil.Api.Tests;
 

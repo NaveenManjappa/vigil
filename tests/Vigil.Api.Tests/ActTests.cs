@@ -10,7 +10,6 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Vigil.Agents;
 using Vigil.Api.Alerts;
 using Vigil.Api.Cases;
-using Vigil.Api.Llm;
 using Vigil.Domain.Audit;
 using Vigil.Domain.Cases;
 using Vigil.Domain.Fraud;

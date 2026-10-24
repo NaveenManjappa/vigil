@@ -34,10 +34,7 @@ public static class Evaluator
     public static EvaluationResult Evaluate(
         IEnumerable<LabelledAccount> dataset, RuleSet ruleSet, IReadOnlyDictionary<string, IReadOnlyList<RuleHit>>? graphHits = null)
     {
-        // Evaluation passes no stored Alerts: each Account is replayed from its whole timeline at once.
-        var scored = dataset
-            .Select(a => (Account: a, Alerts: Detector.Detect(a.Events, ruleSet, graphHits: graphHits?.GetValueOrDefault(a.AccountId))))
-            .ToList();
+        var scored = Score(dataset, ruleSet, graphHits);
         var fraud = scored.Where(s => s.Account.Label.IsFraud).ToList();
         var genuine = scored.Where(s => !s.Account.Label.IsFraud).ToList();
         var ato = fraud.Where(s => s.Account.Label.FraudKind == FraudKind.Ato).ToList();
@@ -58,7 +55,7 @@ public static class Evaluator
                 g.First().Account.Label.IsFraud,
                 g.Count(),
                 g.Count(s => FlaggedAt(s.Alerts, ruleSet) is not null),
-                Enum.GetValues<RiskBand>().ToDictionary(band => band, band => g.Count(s => PeakBand(s.Alerts) == band))))
+                Enum.GetValues<RiskBand>().ToDictionary(band => band, band => g.Count(s => s.PeakBand == band))))
             .ToList();
 
         return new EvaluationResult(
@@ -70,8 +67,11 @@ public static class Evaluator
             personas);
     }
 
-    private static RiskBand PeakBand(IReadOnlyList<Alert> alerts) =>
-        alerts.Select(a => a.Band).DefaultIfEmpty(RiskBand.Low).Max();
+    /// <summary>Each Account with the Alerts detection raises on it, which is also what the Agent Sample is drawn from.</summary>
+    public static IReadOnlyList<ScoredAccount> Score(
+        IEnumerable<LabelledAccount> dataset, RuleSet ruleSet, IReadOnlyDictionary<string, IReadOnlyList<RuleHit>>? graphHits = null) =>
+        // Evaluation passes no stored Alerts: each Account is replayed from its whole timeline at once.
+        [.. dataset.Select(a => new ScoredAccount(a, Detector.Detect(a.Events, ruleSet, graphHits: graphHits?.GetValueOrDefault(a.AccountId))))];
 
     private static DateTimeOffset? FlaggedAt(IReadOnlyList<Alert> alerts, RuleSet ruleSet) =>
         alerts.Select(a => CrossedHighAt(a, ruleSet)).Min();

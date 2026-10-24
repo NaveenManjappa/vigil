@@ -24,7 +24,8 @@ public static class GenerateCommand
         return path;
     }
 
-    private static string? Option(string[] args, string name)
+    /// <summary>The value after <paramref name="name"/>, or null when it is absent; shared with evaluation's commands.</summary>
+    public static string? Option(string[] args, string name)
     {
         var i = Array.IndexOf(args, name);
         if (i < 0) return null;

@@ -21,11 +21,19 @@ The portal component that emits a family of Portal Events, such as authenticatio
 _Avoid_: feed, upstream
 
 **Scenario**:
-One named, hand-scripted Account journey with fixed timestamps, such as Margaret's takeover or Mr Patel's house move, stored as a JSON file in `scenarios/`. The simulator posts it to the API to demonstrate detection end to end, and evaluation can dry-run it against any rule set.
+One named, hand-scripted Account journey with fixed timestamps, such as Margaret's takeover or Mr Patel's house move, stored as a JSON file in `scenarios/`. The simulator posts it to the API to demonstrate detection end to end, and evaluation can dry-run it against any rule set. A Scenario may carry a Label; a Generated Scenario always does.
 _Avoid_: test case, fixture, persona (a Persona is a template that generates many randomised Accounts; a Scenario is one fixed script)
 
+**Generated Scenario**:
+A Scenario written by the Scenario Generator agent rather than by hand, asked to describe fraud the current rules would miss. It always carries a Label (its fraud kind and a one-line intent), is stored in `datasets/generated/`, and is kept only if it is valid and unlike every Scenario already there.
+_Avoid_: synthetic scenario, AI scenario, test case
+
+**Blind Spot**:
+A Generated Scenario labelled as fraud whose Account never reaches High when evaluation dry-runs it: fraud the rules would miss.
+_Avoid_: miss (alone), false negative (that counts generated Accounts; a Blind Spot is a whole journey), gap
+
 **Persona**:
-A template of Holder behaviour from PROJECT.md Section 10.1, such as quiet holder or ATO fraudster, from which the simulator generates many Accounts with randomised timings and identifiers.
+A template of Holder behaviour from PROJECT.md Section 10.1, such as quiet holder, travelling holder or ATO fraudster, from which the simulator generates many Accounts with randomised timings and identifiers.
 _Avoid_: profile, archetype, scenario
 
 **Baseline**:
@@ -143,6 +151,38 @@ _Avoid_: block (alone), action (the action is what the analyst chose; the Interv
 **Prompt Version**:
 The version of an agent's instructions in force for an Investigation, named by its prompt file, stored with the Case and every Audit Entry so the AI's reasoning can be reproduced, as the Rules Version does for detection.
 _Avoid_: prompt ID, template version, model version (the model is recorded separately)
+
+**Agent Sample**:
+The few Accounts an evaluation run investigates with the agents, because investigating the whole Dataset would spend the budget. It is drawn with a fixed seed from Flagged Accounts across Personas, plus a share of Near-misses.
+_Avoid_: test set, eval set, batch
+
+**Near-miss**:
+A genuine Account whose Alerts reached Medium but never High. It never gets a Case in production; evaluation adds a few to the Agent Sample to test whether the agents can clear a false alarm.
+_Avoid_: borderline case, false positive (a near-miss was never Flagged)
+
+**Evidence Grounding**:
+The share of an evaluation run's first-attempt Findings whose cited Evidence Refs all exist. Measured before the code check that rejects unknown refs, because after that check every Finding passes.
+_Avoid_: citation accuracy, faithfulness, hallucination rate
+
+**Verdict Agreement**:
+The share of sampled Findings whose verdict fits the Account's Label: LikelyAccountTakeover for ATO, LikelyRegistrationFraud for registration, either fraud verdict for ring or evasion, and LikelyGenuine or Inconclusive for genuine.
+_Avoid_: accuracy (alone), correctness
+
+**Judge**:
+The evaluation-only agent that scores a Finding against its evidence, 1 to 5 on each of four criteria (grounded claims, sound reasoning, proportionate recommendation, clarity), with a reason for each score. It never runs on a live Case.
+_Avoid_: grader, evaluator, Reviewer (the Reviewer gates a live Finding; the Judge scores one in evaluation)
+
+**Stand-in Analyst**:
+The simulator command that plays the analyst at scale, deciding every Case awaiting approval from the Account's Label: ConfirmedFraud for fraud, FalsePositive for genuine. It exists so the Rule-Tuning Report has enough Analyst Decisions to learn from; its decisions are recorded under the analyst `stand-in`.
+_Avoid_: auto-approver, bot analyst, fake analyst
+
+**Rule-Tuning Report**:
+A report built from Analyst Decisions that gives each Rule's precision (the share of decided Cases containing it that were ConfirmedFraud) and suggests a lower weight for a Rule that is wrong too often, each suggestion with its What-if. It only suggests: a human writes any new rules file (ADR-0012).
+_Avoid_: auto-tuning, rule optimiser, feedback report
+
+**What-if**:
+The effect a suggested weight change would have, measured by re-running detection over the Dataset with that one change: detection rate, false-positive rate and early-detection rate, before and after.
+_Avoid_: simulation (alone), backtest, impact analysis
 
 **Audit Entry**:
 An append-only record of one step in a Case's life after detection: an Investigation completed, a review completed, a decision recorded or an action taken. It names who or what acted, the model and Prompt Version where AI was involved, the Rules Version, the evidence used and the tokens spent. It is never changed once written.
