@@ -48,6 +48,39 @@ public sealed class DatasetGeneratorTests
     }
 
     [Fact]
+    public void About_two_percent_of_holders_are_genuine_Travelling_holders()
+    {
+        var travellers = Dataset42.Where(a => a.Label.Persona == Persona.TravellingHolder).ToList();
+
+        Assert.InRange(travellers.Count, 15, 25);
+        Assert.All(travellers, a => Assert.False(a.Label.IsFraud, $"{a.AccountId} is labelled fraud"));
+    }
+
+    // Windows from PROJECT.md Section 7.2 (R1 1h, R2 24h), not config, as for the slow burn below.
+    [Fact]
+    public void A_Travelling_holder_resets_enrols_MFA_and_changes_phone_abroad_inside_the_R1_and_R2_Windows()
+    {
+        var travellers = Dataset42.Where(a => a.Label.Persona == Persona.TravellingHolder).ToList();
+        Assert.NotEmpty(travellers);
+
+        Assert.All(travellers, a =>
+        {
+            var usual = a.Events[0];
+            var reset = a.Events.Single(e => e.Type == EventType.PasswordReset);
+            var mfa = a.Events.Single(e => e.Type == EventType.MfaEnrolled);
+            var phone = a.Events.Single(e => e.Type == EventType.PhoneChanged);
+
+            Assert.All([reset, mfa, phone], e =>
+            {
+                Assert.NotEqual(usual.DeviceId, e.DeviceId);
+                Assert.NotEqual(usual.Country, e.Country);
+            });
+            Assert.InRange(mfa.OccurredAt - reset.OccurredAt, TimeSpan.Zero, TimeSpan.FromHours(1));
+            Assert.InRange(phone.OccurredAt - reset.OccurredAt, TimeSpan.Zero, TimeSpan.FromHours(24));
+        });
+    }
+
+    [Fact]
     public void Registration_fraud_starts_with_AccountRegistered()
     {
         var registrations = Dataset42.Where(a => a.Label.Persona == Persona.RegistrationFraudster);
