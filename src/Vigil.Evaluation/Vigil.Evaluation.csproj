@@ -10,6 +10,8 @@
     <!-- Only to generate the seeded Dataset when its file is missing, so evaluation is one command. -->
     <ProjectReference Include="..\Vigil.Simulator\Vigil.Simulator.csproj" />
     <ProjectReference Include="..\Vigil.Graph\Vigil.Graph.csproj" />
+    <!-- tune reads Analyst Decisions through the API's own schema rather than restating it in SQL. -->
+    <ProjectReference Include="..\Vigil.Infrastructure\Vigil.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>

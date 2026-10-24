@@ -7,6 +7,14 @@ using Vigil.Simulator.Scenarios;
 // [--seed 42] [--holders 1000] [--rules-off config/rules.v1.json] [--rules-on config/rules.v2.json] [--out eval-reports]
 // scenario <file> [--rules config/rules.v2.json]
 // No API, no Postgres and no LLM, so it is free to run any time (PROJECT.md Section 10.3). Graph on needs Docker.
+
+// tune --connection <postgres> [--rules] [--seed] [--holders] [--out]: the Rule-Tuning Report (ADR-0012).
+if (args.FirstOrDefault() == Vigil.Evaluation.Tuning.TuneCommand.Name)
+{
+    Console.WriteLine($"Wrote {await Vigil.Evaluation.Tuning.TuneCommand.RunAsync(args)}");
+    return;
+}
+
 var seed = int.Parse(Option("--seed") ?? "42");
 var holders = int.Parse(Option("--holders") ?? "1000");
 var offPath = Option("--rules-off") ?? Path.Combine("config", "rules.v1.json");
