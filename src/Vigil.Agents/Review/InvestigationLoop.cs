@@ -6,6 +6,11 @@ namespace Vigil.Agents;
 /// <param name="Model">Last, and optional, so checkpoints written before it was added still read.</param>
 public sealed record AgentUsage(string AgentId, string PromptVersion, long InputTokens, long OutputTokens, string? Model = null);
 
+/// <summary>One Finding the Investigator wrote, and what Validate and Review made of it. Evaluation reads these (ADR-0016).</summary>
+/// <param name="UnknownRefs">The cited refs that were never issued, found before the check that rejects them.</param>
+/// <param name="Approved">The Reviewer's answer; null when validation rejected the Finding, so the Reviewer never saw it.</param>
+public sealed record Attempt(Finding Finding, IReadOnlyList<string> UnknownRefs, bool? Approved);
+
 /// <summary>
 /// What an Investigation hands to Await Approval. Every path produces one, so a Case reaches the analyst even when
 /// the agents failed.
@@ -15,12 +20,14 @@ public sealed record AgentUsage(string AgentId, string PromptVersion, long Input
 /// <param name="RejectionReasons">Why the kept Finding was last rejected; empty when it was approved.</param>
 /// <param name="Usage">Every agent call that returned, in order, including those on a failed run, because they were billed.</param>
 /// <param name="Failure">Why the Investigation failed, for the logs; null when it did not.</param>
+/// <param name="Attempts">Every Finding written, in order; a reply that was not a Finding is not one.</param>
 public sealed record InvestigationOutcome(
     Finding? Finding,
     bool ReviewFlagged,
     IReadOnlyList<string> RejectionReasons,
     IReadOnlyList<AgentUsage> Usage,
-    string? Failure)
+    string? Failure,
+    IReadOnlyList<Attempt> Attempts)
 {
     public bool InvestigationFailed => Finding is null;
 }
@@ -39,6 +46,7 @@ public sealed class InvestigationLoop(Investigator investigator, Reviewer review
     public async Task<InvestigationOutcome> RunAsync(Enrichment enrichment, CancellationToken ct)
     {
         var usage = new List<AgentUsage>();
+        var attempts = new List<Attempt>();
         IReadOnlyList<string> reasons = [];
         Finding? finding = null;
 
@@ -57,14 +65,19 @@ public sealed class InvestigationLoop(Investigator investigator, Reviewer review
             }
             catch (Exception e) when (!ct.IsCancellationRequested)
             {
-                return Failed(usage, e);
+                return Failed(usage, attempts, e);
             }
             usage.Add(new(Investigator.AgentId, Investigator.PromptVersion, investigated.InputTokens, investigated.OutputTokens, investigated.Model));
             finding = investigated.Finding;
 
+            // Taken now, not at the end: a ref the tools issue on the retry would otherwise make this one look grounded.
+            var unknownRefs = enrichment.Evidence.Refs.FindUnknown(finding.EvidenceRefs ?? []);
             reasons = FindingValidation.Check(finding, enrichment.Evidence.Refs);
             if (reasons.Count > 0)
+            {
+                attempts.Add(new(finding, unknownRefs, Approved: null));
                 continue;
+            }
 
             ReviewerResult reviewed;
             try
@@ -73,11 +86,12 @@ public sealed class InvestigationLoop(Investigator investigator, Reviewer review
             }
             catch (Exception e) when (!ct.IsCancellationRequested)
             {
-                return Failed(usage, e);
+                return Failed(usage, attempts, e);
             }
             usage.Add(new(Reviewer.AgentId, Reviewer.PromptVersion, reviewed.InputTokens, reviewed.OutputTokens, reviewed.Model));
+            attempts.Add(new(finding, unknownRefs, reviewed.Review.Approved));
             if (reviewed.Review.Approved)
-                return new(finding, ReviewFlagged: false, [], usage, Failure: null);
+                return new(finding, ReviewFlagged: false, [], usage, Failure: null, attempts);
 
             // A rejection with no reasons would give the retry nothing to fix.
             reasons = reviewed.Review.Reasons.Count > 0 ? reviewed.Review.Reasons : ["The Reviewer rejected the Finding without a reason."];
@@ -85,12 +99,12 @@ public sealed class InvestigationLoop(Investigator investigator, Reviewer review
 
         // Non-null here: the last attempt either returned from a catch or wrote a Finding.
         if (!FindingValidation.IsComplete(finding!))
-            return new(null, ReviewFlagged: false, [], usage, "The last Finding was incomplete: " + string.Join(" ", reasons));
-        return new(finding!, ReviewFlagged: true, reasons, usage, Failure: null);
+            return new(null, ReviewFlagged: false, [], usage, "The last Finding was incomplete: " + string.Join(" ", reasons), attempts);
+        return new(finding!, ReviewFlagged: true, reasons, usage, Failure: null, attempts);
     }
 
     // Timeouts surface as OperationCanceledException with our token untouched, so they fail the Investigation like
     // any LLM error. Only a cancelled token, the host stopping, escapes: the Case is then re-queued on startup.
-    private static InvestigationOutcome Failed(List<AgentUsage> usage, Exception e) =>
-        new(null, ReviewFlagged: false, [], usage, $"{e.GetType().Name}: {e.Message}");
+    private static InvestigationOutcome Failed(List<AgentUsage> usage, List<Attempt> attempts, Exception e) =>
+        new(null, ReviewFlagged: false, [], usage, $"{e.GetType().Name}: {e.Message}", attempts);
 }

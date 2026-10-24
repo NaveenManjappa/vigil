@@ -10,11 +10,15 @@
     <!-- Only to generate the seeded Dataset when its file is missing, so evaluation is one command. -->
     <ProjectReference Include="..\Vigil.Simulator\Vigil.Simulator.csproj" />
     <ProjectReference Include="..\Vigil.Graph\Vigil.Graph.csproj" />
+    <!-- The same InvestigationLoop and LLM wiring the API runs, so the Agent Sample measures what production does (ADR-0016). -->
+    <ProjectReference Include="..\Vigil.Agents\Vigil.Agents.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Graph-on evaluation replays into its own container, so the demo graph is never touched. -->
     <PackageReference Include="Testcontainers.Neo4j" />
+    <!-- Configuration, DI and console logging, so the LLM is registered and its tokens logged as in the API. -->
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
   </ItemGroup>
 
 </Project>

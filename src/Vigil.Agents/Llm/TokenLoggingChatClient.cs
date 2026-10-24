@@ -1,7 +1,8 @@
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Logging;
 
-namespace Vigil.Api.Llm;
+namespace Vigil.Agents;
 
 /// <summary>
 /// Logs the tokens and estimated cost of every LLM round trip. It sits below the agents, so a tool loop logs one line

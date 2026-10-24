@@ -1,7 +1,9 @@
 using System.ClientModel;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using OpenAI;
-using Vigil.Api.Llm;
+using Vigil.Agents;
 using Vigil.Domain.Telemetry;
 
 // In the DI namespace, like the framework's own Add* extensions, so Program.cs needs no extra using.

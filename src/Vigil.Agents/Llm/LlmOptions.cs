@@ -1,4 +1,4 @@
-namespace Vigil.Api.Llm;
+namespace Vigil.Agents;
 
 public enum LlmProvider
 {

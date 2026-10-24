@@ -37,16 +37,19 @@ dotnet run --project src/Vigil.Simulator -- generate --seed 42 --holders 1000
 # Wrote datasets/seed-42-holders-1000.jsonl
 ```
 
-To score that Dataset with the graph off (v1) and on (v2) side by side (no API, no Postgres, no LLM, so it is free to run any time; Docker must be running):
+To score that Dataset with the graph off (v1) and on (v2) side by side, and run the agents on an Agent Sample (no API and no Postgres; with the default Fake LLM it is free to run any time; Docker must be running):
 
 ```bash
 dotnet run --project src/Vigil.Evaluation
 # Wrote eval-reports/<run ID>.md
 # v1: detection rate 17/30, false-positive rate 0/970, early-detection rate 9/9
 # v2: detection rate 22/30, false-positive rate 0/970, early-detection rate 9/9
+# agents (Fake, not meaningful): Evidence Grounding 25/25, Verdict Agreement 13/25, 0 tokens, £0.0
 ```
 
-It generates the Dataset first if the file is missing. v1 is scored in memory. For v2 it starts a throwaway Neo4j container, so the demo graph is never touched, and replays the Dataset's events into it in OccurredAt order, so no Graph Rule sees a link that formed after the event being scored (about a minute for 1,000 holders). Options: `--seed 42`, `--holders 1000`, `--rules-off config/rules.v1.json`, `--rules-on config/rules.v2.json`, `--out eval-reports`. The report gives detection rate, false-positive rate, per-rule precision and early-detection rate, plus a per-Persona breakdown, for both Rules Versions, and records the run ID and seed. See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
+It generates the Dataset first if the file is missing. v1 is scored in memory. For v2 it starts a throwaway Neo4j container, so the demo graph is never touched, and replays the Dataset's events into it in OccurredAt order, so no Graph Rule sees a link that formed after the event being scored (about a minute for 1,000 holders). Options: `--seed 42`, `--holders 1000`, `--rules-off config/rules.v1.json`, `--rules-on config/rules.v2.json`, `--out eval-reports`, `--llm Fake|AzureOpenAI`, `--agent-sample 20`. The report gives detection rate, false-positive rate, per-rule precision and early-detection rate, plus a per-Persona breakdown, for both Rules Versions, and records the run ID, seed, Rules Versions, Prompt Versions, provider and model.
+
+The agent section runs the API's Investigate, Validate and Review loop in process on an Agent Sample: 20 Flagged Accounts (v2) drawn with the seed across Personas, plus up to 5 Near-misses (ADR-0016). Each Investigation sees the Dataset, and the replayed graph, as they stood when its Case would have opened. It reports Evidence Grounding on first-attempt Findings, Verdict Agreement with the Label (and on Near-misses alone), the Reviewer rejection and Review Flag rates, and tokens, £ and seconds per Investigation. With Fake the numbers are marked not meaningful. For a real run, set `Llm__Endpoint`, `Llm__Deployment` and `Llm__ApiKey` (and the `Llm__InputPricePer1kTokens` / `Llm__OutputPricePer1kTokens` prices, default £0.0003 / £0.0012) as environment variables and pass `--llm AzureOpenAI`; it costs only the Agent Sample's 25 Investigations. See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
 
 ### Try a scenario
 
@@ -164,9 +167,9 @@ API tests start throwaway Postgres and Neo4j containers via Testcontainers, so D
 | `src/Vigil.Infrastructure` | EF Core event and alert stores, migrations |
 | `src/Vigil.Api` | Ingestion, timeline, alert, case and rules endpoints |
 | `src/Vigil.Simulator` | Posts Scenario files; the seeded Persona Dataset generator |
-| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on markdown report out; `scenario` dry run |
+| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on and Agent Sample markdown report out; `scenario` dry run |
 | `tests/Vigil.Detection.Tests` | Detection tests against the shipped rules file |
-| `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, a Ring flagged only with the graph on, the seed-42 known misses, the report |
+| `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, a Ring flagged only with the graph on, the seed-42 known misses, the Agent Sample, Evidence Grounding and Verdict Agreement (Fake LLM), the report |
 | `tests/Vigil.Simulator.Tests` | Dataset generator tests (determinism, Persona mix, slow-burn spacing) and Scenario file loading |
 | `tests/Vigil.Api.Tests` | API tests against real Postgres |
 | `config/rules.v1.json` | Versioned rules, windows, points and band thresholds |
