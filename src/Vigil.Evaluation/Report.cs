@@ -17,6 +17,7 @@ public static class Report
         [Persona.HouseMover] = "Low",
         [Persona.NewPhone] = "Medium",
         [Persona.ActiveTrader] = "Low",
+        [Persona.TravellingHolder] = "High (false positive)",
         [Persona.AtoFraudster] = "High/Critical before bank change",
         [Persona.RegistrationFraudster] = "High",
         [Persona.FraudRing] = "Graph rules lift to High",

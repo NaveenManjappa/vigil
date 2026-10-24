@@ -42,9 +42,9 @@ To score that Dataset with the graph off (v1) and on (v2) side by side, and run 
 ```bash
 dotnet run --project src/Vigil.Evaluation
 # Wrote eval-reports/<run ID>.md
-# v1: detection rate 17/30, false-positive rate 0/970, early-detection rate 9/9
-# v2: detection rate 22/30, false-positive rate 0/970, early-detection rate 9/9
-# agents (Fake, not meaningful): Evidence Grounding 25/25, Verdict Agreement 13/25, 0 tokens, £0.0
+# v1: detection rate 17/30, false-positive rate 20/970, early-detection rate 9/9
+# v2: detection rate 22/30, false-positive rate 20/970, early-detection rate 9/9
+# agents (Fake, not meaningful): Evidence Grounding 25/25, Verdict Agreement 10/25, 0 tokens, £0.0000
 ```
 
 It generates the Dataset first if the file is missing. v1 is scored in memory. For v2 it starts a throwaway Neo4j container, so the demo graph is never touched, and replays the Dataset's events into it in OccurredAt order, so no Graph Rule sees a link that formed after the event being scored (about a minute for 1,000 holders). Options: `--seed 42`, `--holders 1000`, `--rules-off config/rules.v1.json`, `--rules-on config/rules.v2.json`, `--out eval-reports`, `--llm Fake|AzureOpenAI`, `--agent-sample 20`. The report gives detection rate, false-positive rate, per-rule precision and early-detection rate, plus a per-Persona breakdown, for both Rules Versions, and records the run ID, seed, Rules Versions, Prompt Versions, provider and model.

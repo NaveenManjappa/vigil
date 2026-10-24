@@ -11,6 +11,7 @@ public enum Persona
     HouseMover,
     NewPhone,
     ActiveTrader,
+    TravellingHolder,
     AtoFraudster,
     RegistrationFraudster,
     FraudRing,

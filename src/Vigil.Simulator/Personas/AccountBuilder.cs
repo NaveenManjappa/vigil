@@ -6,6 +6,7 @@ namespace Vigil.Simulator.Personas;
 internal sealed class AccountBuilder
 {
     private static readonly string[] FraudCountries = ["RO", "NG", "BR", "VN"];
+    private static readonly string[] TravelCountries = ["ES", "FR", "US", "TH"];
 
     private readonly string datasetName;
     private readonly int number;
@@ -40,6 +41,7 @@ internal sealed class AccountBuilder
             Persona.HouseMover => HouseMover(),
             Persona.NewPhone => NewPhone(),
             Persona.ActiveTrader => ActiveTrader(),
+            Persona.TravellingHolder => TravellingHolder(),
             Persona.AtoFraudster => AtoFraudster(),
             Persona.RegistrationFraudster => RegistrationFraudster(),
             Persona.FraudRing => FraudRing(ring),
@@ -81,7 +83,28 @@ internal sealed class AccountBuilder
     {
         foreach (var login in Baseline(until: ClockEnd, TimeSpan.FromHours(12), TimeSpan.FromDays(2)))
             if (rng.Next(4) == 0)
-                AsHolder(EventType.SaleRequested, After(login, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(30)), Sale());
+            {
+                // A login just before the clock ends leaves no room for its sale, and every event must stay on the clock.
+                var sale = After(login, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(30));
+                if (sale <= ClockEnd) AsHolder(EventType.SaleRequested, sale, Sale());
+            }
+        return null;
+    }
+
+    /// <summary>
+    /// A genuine Holder abroad on a new device who resets the password, enrols MFA and changes phone, each step
+    /// inside the R1 or R2 Window. It reaches High (R0 + R1 + R2 = 60): the false positive the feedback loop learns from.
+    /// </summary>
+    private FraudKind? TravellingHolder()
+    {
+        var device = $"D-{number:D5}-TRAVEL";
+        var ip = $"2001:db8:a::{number:x}";
+        var country = TravelCountries[rng.Next(TravelCountries.Length)];
+        var reset = BaselineThenJourney();
+        Add(EventType.PasswordReset, reset, device, ip, country);
+        Add(EventType.MfaEnrolled, After(reset, TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(45)), device, ip, country);
+        Add(EventType.PhoneChanged, After(reset, TimeSpan.FromHours(1), TimeSpan.FromHours(20)), device, ip, country,
+            new() { ["NewPhone"] = Phone() });
         return null;
     }
 

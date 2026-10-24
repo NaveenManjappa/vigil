@@ -13,11 +13,14 @@ public static class DatasetGenerator
     public static readonly TimeSpan ClockSpan = TimeSpan.FromDays(90);
 
     private const double FraudShare = 0.03;
+
+    // Enough Travelling holders that the false positives they raise show up in every report, not by chance.
+    private const double TravellerShare = 0.02;
     public const int RingSize = 5;
 
     // One ring plus one each of the other three fraud Personas, so every Persona appears even in a small Dataset.
     private const int MinimumFraud = RingSize + 3;
-    private const int MinimumGenuine = 4;
+    private const int MinimumGenuine = 5;
 
     public static IReadOnlyList<LabelledAccount> Generate(int seed, int holders)
     {
@@ -27,7 +30,8 @@ public static class DatasetGenerator
         var rng = new Random(seed);
         var name = $"dataset-{seed}-{holders}";
 
-        var slots = FraudSlots(fraud).Concat(GenuineSlots(holders - fraud, rng)).ToArray();
+        var travellers = Math.Max(1, (int)Math.Round(holders * TravellerShare));
+        var slots = FraudSlots(fraud).Concat(GenuineSlots(holders - fraud, travellers, rng)).ToArray();
         rng.Shuffle(slots);
 
         return slots
@@ -47,14 +51,18 @@ public static class DatasetGenerator
             yield return (solo[i % solo.Length], 0);
     }
 
-    // One of each first, so every genuine Persona appears even in a small Dataset.
-    private static IEnumerable<(Persona Persona, int Ring)> GenuineSlots(int genuine, Random rng)
+    // A fixed count of Travelling holders, then one of each other genuine Persona, so every Persona appears
+    // even in a small Dataset.
+    private static IEnumerable<(Persona Persona, int Ring)> GenuineSlots(int genuine, int travellers, Random rng)
     {
+        for (var i = 0; i < travellers; i++)
+            yield return (Persona.TravellingHolder, 0);
+
         Persona[] each = [Persona.QuietHolder, Persona.HouseMover, Persona.NewPhone, Persona.ActiveTrader];
         foreach (var persona in each)
             yield return (persona, 0);
 
-        for (var i = each.Length; i < genuine; i++)
+        for (var i = travellers + each.Length; i < genuine; i++)
             yield return (rng.Next(10) switch
             {
                 0 => Persona.HouseMover,
