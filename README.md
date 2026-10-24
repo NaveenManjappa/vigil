@@ -12,6 +12,8 @@ Vigil watches investor-portal account journeys and flags account takeover and re
 
 **Stage 3 — Agentic investigation with MAF.** A Case opened by a High Alert is investigated in the background by a Microsoft Agent Framework workflow: an Investigator agent with three Account-bound tools, code validation of its Evidence Refs, and a Reviewer agent, all on masked Pseudonyms. The workflow pauses for an Analyst Decision, checkpointed in Postgres, and Act records the Intervention and Audit Entries. See [Margaret's Investigation](#margarets-investigation-stage-3-demo).
 
+**Stage 4 — Training agents, evaluation, feedback.** One evaluation command scores the rules with the graph off and on, runs the agents on a seeded Agent Sample with a Judge, and lists the Blind Spots a red-team Scenario Generator found. A Stand-in Analyst decides Cases through the API, and a Rule-Tuning Report suggests weight changes from those decisions for a human to approve. See the [Stage 4 demo](#evaluation-and-feedback-stage-4-demo) and the [runbook](docs/runbook.md).
+
 ## Quick start
 
 Prerequisites: .NET 10 SDK, Docker.
@@ -37,19 +39,7 @@ dotnet run --project src/Vigil.Simulator -- generate --seed 42 --holders 1000
 # Wrote datasets/seed-42-holders-1000.jsonl
 ```
 
-To score that Dataset with the graph off (v1) and on (v2) side by side, and run the agents on an Agent Sample (no API and no Postgres; with the default Fake LLM it is free to run any time; Docker must be running):
-
-```bash
-dotnet run --project src/Vigil.Evaluation
-# Wrote eval-reports/<run ID>.md
-# v1: detection rate 17/30, false-positive rate 20/970, early-detection rate 9/9
-# v2: detection rate 22/30, false-positive rate 20/970, early-detection rate 9/9
-# agents (Fake, not meaningful): Evidence Grounding 25/25, Verdict Agreement 10/25, 0 tokens, £0.0000
-```
-
-It generates the Dataset first if the file is missing. v1 is scored in memory. For v2 it starts a throwaway Neo4j container, so the demo graph is never touched, and replays the Dataset's events into it in OccurredAt order, so no Graph Rule sees a link that formed after the event being scored (about a minute for 1,000 holders). Options: `--seed 42`, `--holders 1000`, `--rules-off config/rules.v1.json`, `--rules-on config/rules.v2.json`, `--out eval-reports`, `--llm Fake|AzureOpenAI`, `--agent-sample 20`. The report gives detection rate, false-positive rate, per-rule precision and early-detection rate, plus a per-Persona breakdown, for both Rules Versions, and records the run ID, seed, Rules Versions, Prompt Versions, provider and model.
-
-The agent section runs the API's Investigate, Validate and Review loop in process on an Agent Sample: 20 Flagged Accounts (v2) drawn with the seed across Personas, plus up to 5 Near-misses (ADR-0016). Each Investigation sees the Dataset, and the replayed graph, as they stood when its Case would have opened. It reports Evidence Grounding on first-attempt Findings, Verdict Agreement with the Label (and on Near-misses alone), the Reviewer rejection and Review Flag rates, and tokens, £ and seconds per Investigation. An evaluation-only Judge (`judge.v1`) then scores each Finding 1 to 5 on grounded claims, sound reasoning, proportionate recommendation and clarity, with a reason for each; it uses the Investigator's deployment, so the report warns of self-preference bias. With Fake the numbers are marked not meaningful. For a real run, set `Llm__Endpoint`, `Llm__Deployment` and `Llm__ApiKey` (and the `Llm__InputPricePer1kTokens` / `Llm__OutputPricePer1kTokens` prices, default £0.0003 / £0.0012) as environment variables and pass `--llm AzureOpenAI`; it costs only the Agent Sample's 25 Investigations and their 25 Judge calls. See [docs/architecture.md](docs/architecture.md) for how the pieces fit together.
+To score it with the rules and run the agents on a sample, see the [Stage 4 demo](#evaluation-and-feedback-stage-4-demo).
 
 ### Try a scenario
 
@@ -67,18 +57,6 @@ dotnet run --project src/Vigil.Evaluation -- scenario scenarios/my-story.json
 The dry run uses the API's rules, `config/rules.v2.json`, but has no graph, so it scores sequence and first-sighting Rules only. Margaret's dry run peaks at 90; posted to the API after the D-77 Scenarios, she also gets G2 and G3.
 
 To try a rule change, edit a copy of the rules file and pass it with `--rules my-rules.json`. The scenario stays the same and only the verdict changes. Run the full evaluation with it as `--rules-on my-rules.json` to see what the change does to detection and false-positive rates.
-
-### Find Blind Spots
-
-The Scenario Generator agent is a red team. It reads the rules file and the Scenarios in `scenarios/`, then writes labelled Generated Scenarios of fraud the rules would miss. Each one is checked by the strict Scenario parser, must carry a `label` (`{ "kind": "Ato", "intent": "..." }`), and is kept only if its shape (event types in order, with the gaps rounded to the hour) is new. Kept Scenarios go to `datasets/generated/`, which is committed:
-
-```bash
-dotnet run --project src/Vigil.Evaluation -- generate-scenarios --count 5 --llm AzureOpenAI
-# Wrote datasets/generated/<name>.json
-# AzureOpenAI: 4 kept, 1 rejected, ... tokens, £...
-```
-
-It makes one LLM call, and `--count` is capped at 10. With the default `--llm Fake` it writes one scripted placeholder. Every evaluation run dry-runs the Generated Scenarios against `--rules-on`, and the report's Blind Spots section lists each fraud one that never reaches High.
 
 Without `--scenario`, the simulator posts every shipped Scenario in order of its first event, so the earlier D-77 Accounts are in the graph before Margaret's takeover arrives. To post one to the running API, with the AppHost up, point the simulator at the API yourself, because outside Aspire it has no service discovery:
 
@@ -160,6 +138,45 @@ In the dashboard's **Traces** view, Margaret's ingest request is one trace: `POS
 
 **Budget warning:** every new Case now costs real tokens. `Investigation:DailyLimit` (default 20 per UTC day) caps Investigations started; Cases over it stay Open, marked not investigated, and are not re-queued. Set `Investigation:Enabled` to `false` before replaying a large Dataset into the API. Each LLM call logs its tokens and estimated £, so spend can be reconciled call by call.
 
+## Evaluation and feedback (Stage 4 demo)
+
+Everything here runs with the free Fake LLM by default. The [runbook](docs/runbook.md) has every option, the Azure runs and the common failures; [docs/architecture.md](docs/architecture.md#evaluation-and-feedback-loop) explains how the loop fits together.
+
+**1. Evaluate the rules and the agents.** With Docker running, and no AppHost needed:
+
+```bash
+dotnet run --project src/Vigil.Evaluation
+# Wrote eval-reports/<run ID>.md
+# v1: detection rate 17/30, false-positive rate 20/970, early-detection rate 9/9
+# v2: detection rate 22/30, false-positive rate 20/970, early-detection rate 9/9
+# agents (Fake, not meaningful): Evidence Grounding 25/25, Verdict Agreement 10/25, 0 tokens, £0.0000; Judge 25/25 judged, 0 tokens
+# Blind Spots: 1 of 1 fraud Generated Scenarios never reached High on v2
+```
+
+Open the report in `eval-reports/`. Things to point at:
+
+- **Graph off vs on.** v2's Graph Rules lift the five Fraud ring Accounts from Medium to Critical, so detection rises from 17 to 22 of 30. The slow-burn fraudster stays a known miss either way.
+- **False positives.** The 20 Travelling holders reach High under both versions: the false positives the feedback loop learns from.
+- **Agents.** 25 Investigations (20 Flagged Accounts plus 5 Near-misses) with Evidence Grounding, Verdict Agreement, Reviewer rejection and Review Flag rates, cost per Investigation, and the Judge's four scores. With Fake they only show the harness runs; `--llm AzureOpenAI` gives real ones for the cost of the Agent Sample alone.
+- **Blind Spots.** Generated Scenarios of fraud that never reaches High.
+
+**2. Find Blind Spots.** The Scenario Generator agent reads the rules and writes Generated Scenarios of fraud they would miss to `datasets/generated/`. It needs Azure for real output; the committed one is a Fake-written placeholder that the first Azure run replaces ([runbook](docs/runbook.md#generate-scenarios-find-blind-spots)):
+
+```bash
+dotnet run --project src/Vigil.Evaluation -- generate-scenarios --count 5 --llm AzureOpenAI
+```
+
+**3. Learn from decisions.** With the AppHost up, `Investigation:DailyLimit` raised and `Llm:Provider` Fake, post the Dataset to the API, let the Stand-in Analyst decide every Case from its Label, then build the Rule-Tuning Report from Postgres ([runbook](docs/runbook.md#the-stand-in-analyst-and-the-rule-tuning-report) for the setup):
+
+```bash
+services__api__http__0=http://localhost:5107 dotnet run --project src/Vigil.Simulator -- post-dataset
+services__api__http__0=http://localhost:5107 dotnet run --project src/Vigil.Simulator -- decide --by-label
+dotnet run --project src/Vigil.Evaluation -- tune --connection "<the api's ConnectionStrings__vigil>"
+# Wrote eval-reports/rule-tuning-<run ID>.md
+```
+
+The report gives each Rule's precision from the decisions, suggests halving the points of a Rule that is wrong more often than not, and shows each suggestion's What-if over the Dataset. It never edits a rules file: a person copies the rules to a new version, re-runs step 1 with `--rules-off config/rules.v2.json --rules-on config/rules.v3.json`, and decides (ADR-0012).
+
 ## Tests
 
 ```bash
@@ -178,14 +195,18 @@ API tests start throwaway Postgres and Neo4j containers via Testcontainers, so D
 | `src/Vigil.Detection` | Rules engine: timeline + rule set → Alerts (pure) |
 | `src/Vigil.Infrastructure` | EF Core event and alert stores, migrations |
 | `src/Vigil.Api` | Ingestion, timeline, alert, case and rules endpoints |
-| `src/Vigil.Simulator` | Posts Scenario files; the seeded Persona Dataset generator |
-| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on, Agent Sample and Blind Spot markdown report out; `scenario` dry run; `generate-scenarios` (Scenario Generator) |
+| `src/Vigil.Simulator` | Posts Scenario files; the seeded Persona Dataset generator; `post-dataset` and the Stand-in Analyst (`decide --by-label`) |
+| `src/Vigil.Evaluation` | Evaluation console: Dataset in, graph off vs on, Agent Sample and Blind Spot markdown report out; `scenario` dry run; `generate-scenarios` (Scenario Generator); `tune` (Rule-Tuning Report) |
 | `tests/Vigil.Detection.Tests` | Detection tests against the shipped rules file |
 | `tests/Vigil.Evaluation.Tests` | Metrics on a hand-labelled Dataset, a Ring flagged only with the graph on, the seed-42 known misses, the Agent Sample, Evidence Grounding and Verdict Agreement (Fake LLM), the Judge's parsing and means, the report |
 | `tests/Vigil.Simulator.Tests` | Dataset generator tests (determinism, Persona mix, slow-burn spacing) and Scenario file loading |
 | `tests/Vigil.Api.Tests` | API tests against real Postgres |
-| `config/rules.v1.json` | Versioned rules, windows, points and band thresholds |
+| `config/rules.v1.json`, `rules.v2.json` | Versioned rules, windows, points and band thresholds; v2 adds the Graph Rules and is what the API runs |
+| `config/prompts` | Versioned agent prompts: Investigator, Reviewer, Judge, Scenario Generator |
 | `scenarios` | Scenario files (JSON), posted by the simulator and dry-run by evaluation |
-| `eval-reports` | Generated evaluation reports |
-| `docs/architecture.md` | Components, data flow, Margaret's case through Stage 1 |
+| `datasets/generated` | Generated Scenarios, committed for review; Datasets themselves are generated locally and not committed |
+| `eval-reports` | Generated evaluation and Rule-Tuning reports |
+| `docs/architecture.md` | Components, data flow, Margaret's case through Stage 1, the evaluation and feedback loop |
+| `docs/runbook.md` | Run, reset data, evaluations, the Stand-in and tune flow, common failures |
+| `docs/industrialisation.md` | MVP to production target state |
 | `docs/adr` | Architecture decisions |

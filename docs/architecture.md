@@ -1,6 +1,6 @@
 # Architecture
 
-Vigil as it stands at the end of Stage 1: a deterministic rules engine scores each Account as its Portal Events arrive, and the same engine scores labelled Datasets offline. Graph rules (Stage 2) and agents (Stage 3) come later; PROJECT.md Section 4 has the target design.
+How Vigil's pieces fit together. The components, data flow and Margaret's case below describe the Stage 1 core: a deterministic rules engine scores each Account as its Portal Events arrive, and the same engine scores labelled Datasets offline. Graph Rules (Stage 2) and the agents (Stage 3) are recorded in ADR-0013 to ADR-0015 and ADR-0004 to ADR-0009. The [evaluation and feedback loop](#evaluation-and-feedback-loop) (Stage 4) is at the end. PROJECT.md Section 4 has the target design, and [industrialisation.md](industrialisation.md) the production one.
 
 ## Components
 
@@ -37,7 +37,7 @@ flowchart LR
 | `Vigil.Infrastructure` | EF Core stores: append-only events, Alerts with their Rule Hits, and Cases. |
 | `Vigil.Api` | Ingests batches, runs detection inside the ingest transaction, and serves `/alerts`, `/cases`, `/rules` and Account timelines. |
 | `Vigil.Simulator` | Posts the Scenario files in `scenarios/` (Margaret and Mr Patel) to the API, and (`generate`) writes a seeded, labelled Dataset to a file. Labels never go to the API. |
-| `Vigil.Evaluation` | Loads a Dataset, runs `Detector.Detect` per Account with the graph off and on, and writes a markdown report comparing them. With the graph on it replays the Dataset into a throwaway Neo4j container for the graph Rule Hits. Its `scenario` command dry-runs one Scenario step by step against any rules file. No API, no Postgres, no LLM. |
+| `Vigil.Evaluation` | Loads a Dataset, runs `Detector.Detect` per Account with the graph off and on, and writes a markdown report comparing them. With the graph on it replays the Dataset into a throwaway Neo4j container for the graph Rule Hits. Its `scenario` command dry-runs one Scenario step by step against any rules file. Since Stage 4 it also runs the agents on an Agent Sample, finds Blind Spots and builds the Rule-Tuning Report (see [Evaluation and feedback loop](#evaluation-and-feedback-loop)). It needs no API, and only `tune` reads Postgres. |
 | `Vigil.AppHost` | Starts PostgreSQL, Neo4j, the API and the simulator, and hosts the tracing dashboard. |
 
 ## Data flow
@@ -90,3 +90,76 @@ Mr Patel's house move (address change, then phone change, on his usual device) m
 - A per-Persona breakdown beside PROJECT.md Section 10.1's expected outcome.
 
 An Account is flagged when any of its Alerts reached High or above. With the graph off, each fraud-ring Account alone reaches only Medium; with it on, G1 and G3 lift all five to Critical. The slow-burn fraudster stays a known miss either way, since it spaces each step just beyond its Rule's Window. G2 has no hits, because the generated Dataset contains no Confirmed Fraud; Scenarios demonstrate it.
+
+## Evaluation and feedback loop
+
+Stage 4 closes the loop: evaluation measures the rules and the agents offline, a red-team agent looks for fraud the rules miss, and Analyst Decisions on live Cases come back as suggested rule changes that a human approves. Nothing in the loop changes the rules by itself (ADR-0012). [runbook.md](runbook.md) has the commands.
+
+```mermaid
+flowchart TB
+    subgraph Offline["Vigil.Evaluation (no API, no Postgres)"]
+        Ds[/"Dataset<br/>datasets/seed-42-holders-1000.jsonl"/]
+        Det["Detector.Detect<br/>v1 graph off, v2 graph on"]
+        Neo[("throwaway Neo4j<br/>replayed in OccurredAt order")]
+        Loop["InvestigationLoop<br/>Investigator, Validate, Reviewer"]
+        Judge["Judge (judge.v1)"]
+        Gen["Scenario Generator<br/>generate-scenarios"]
+        GenDir[/"datasets/generated/*.json"/]
+        Rep[/"eval-reports/&lt;run ID&gt;.md"/]
+    end
+
+    subgraph Live["Live stack (AppHost)"]
+        Api["Vigil.Api<br/>ingest, Cases, Investigations"]
+        Pg[("Postgres<br/>Analyst Decisions")]
+    end
+
+    StandIn["Simulator<br/>post-dataset, decide --by-label"]
+    Tune["Vigil.Evaluation tune"]
+    TRep[/"eval-reports/rule-tuning-&lt;run ID&gt;.md"/]
+    Human(["Human: new rules.vN.json"])
+    Rules[/"config/rules.v*.json"/]
+
+    Ds --> Det
+    Det <--> Neo
+    Det -- "Agent Sample" --> Loop
+    Neo -- "Neighbourhood" --> Loop
+    Loop --> Judge
+    Rules --> Gen --> GenDir
+    GenDir -- "dry run: Blind Spots" --> Det
+    Det --> Rep
+    Judge --> Rep
+
+    Ds --> StandIn -- "events, then decisions" --> Api --> Pg
+    Pg --> Tune
+    Ds -- "What-if" --> Tune --> TRep
+    TRep --> Human --> Rules
+    Rules --> Det
+    Rules --> Api
+```
+
+### Measuring the rules and the agents
+
+`dotnet run --project src/Vigil.Evaluation` is one command that produces one report, with no API or Postgres:
+
+1. **Rules.** It scores the Dataset twice, with the graph off (v1) and on (v2), as described in [Evaluation](#evaluation) above.
+2. **Agents.** From the v2 scores it draws an Agent Sample: 20 Flagged Accounts taken in turn from each Persona, plus up to 5 Near-misses, with the seed fixing the draw (ADR-0016). Each one runs through the same `InvestigationLoop` the API runs. Its tools read a `DatasetInvestigationSource` in place of the event store, and the throwaway Neo4j the graph replay filled in place of the Projection. The source is cut off at the moment the Case would have opened, so the agents never read an event that came later.
+3. **Code before LLM.** Evidence Grounding is measured on each first attempt, before the validation that rejects unknown Evidence Refs, because after that check it would always be 100%. Verdict Agreement compares each Finding's verdict with the Account's Label. The Reviewer's rejection rate, the Review Flag rate, and tokens, £ and seconds per Investigation are counted from the loop's outcome.
+4. **Judge.** Only reasoning quality needs an LLM: the evaluation-only Judge (`judge.v1`) scores each Finding 1 to 5 on grounded claims, sound reasoning, proportionate recommendation and clarity, against the same masked evidence. It never runs on a live Case, so it lives in `Vigil.Evaluation`, and its cost is kept apart from the cost per Investigation.
+5. **Blind Spots.** Every Generated Scenario in `datasets/generated/` is dry-run against v2, and each fraud one that never reaches High is listed as a Blind Spot.
+
+The report header names the run ID, seed, Rules Versions, Prompt Versions (`investigator.v1+reviewer.v1`, `judge.v1`), provider and model, so two runs can be compared knowing what changed. The LLM wiring lives in `Vigil.Agents`, shared by the API and evaluation; `--llm Fake` (the default) is free and its agent numbers are marked not meaningful, while `--llm AzureOpenAI` spends only on the Agent Sample.
+
+### Looking for what the rules miss
+
+`generate-scenarios` asks the Scenario Generator agent, a red team that is shown the rules file and the hand-written Scenarios, for fraud the rules would miss. Its reply goes through the same strict Scenario parser the simulator uses. A Generated Scenario must carry a Label, and is kept only if its signature (event types in order, gaps rounded to the hour) is unlike every Scenario already kept. Kept ones are committed to `datasets/generated/` for review. The generator only writes Scenarios; deciding which Blind Spots deserve a new Rule is a human's job.
+
+### From decisions back to the rules
+
+The Rule-Tuning Report learns from Analyst Decisions on live Cases, so the loop goes through the running API:
+
+1. `Vigil.Simulator post-dataset` posts a Dataset's events to `POST /events` without their Labels, in OccurredAt order across all Accounts, so the graph builds as it would live. Accounts that reach High open Cases, and the worker investigates them.
+2. `Vigil.Simulator decide --by-label` is the Stand-in Analyst. It decides each Case in AwaitingApproval from its Account's Label, through `POST /cases/{id}/decision`, so Act runs exactly as for a human decision and a ConfirmedFraud records a Confirmed Fraud. The genuine Travelling holder Persona reaches High, so the decisions include false positives as well as fraud.
+3. `Vigil.Evaluation tune` reads Analyst Decision → Case → Alert → Rule Hits from Postgres. A Rule's precision is the share of decided Cases containing it that were ConfirmedFraud. A Rule below 50% precision with at least 5 decisions gets a suggestion: halve its points, to the nearest 5. Each suggestion has a What-if: detection is re-run over the Dataset with that one change, showing detection, false-positive and early-detection rates before and after.
+4. A human reads the report and, if they accept a suggestion, writes a new rules file, re-runs the evaluation to compare, and deploys it. Every Alert scored from then on records the new Rules Version (ADR-0002).
+
+The What-if is the point of the report: a noisy Rule can still be what carries fraud over the line. Lowering R2 quiets the Travelling holder, but it also delays Margaret's takeover past her email change. Whether that trade is worth it is a business judgement, which is why the system never makes it (ADR-0012). The report can only see Rules that reached a Case; fraud the rules miss entirely never reaches an analyst, which is what Blind Spots and the detection rate are for.
