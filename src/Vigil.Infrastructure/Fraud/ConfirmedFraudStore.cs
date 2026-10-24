@@ -18,6 +18,9 @@ public sealed class ConfirmedFraudStore(VigilDbContext db)
         return fraud;
     }
 
+    public async Task<ConfirmedFraud?> FindAsync(string accountId, CancellationToken ct = default) =>
+        (await db.ConfirmedFrauds.AsNoTracking().SingleOrDefaultAsync(f => f.AccountId == accountId, ct))?.ToDomain();
+
     public async Task<IReadOnlyList<ConfirmedFraud>> AllAsync(CancellationToken ct = default) =>
         (await db.ConfirmedFrauds.AsNoTracking().ToListAsync(ct)).Select(f => f.ToDomain()).ToList();
 }

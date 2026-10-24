@@ -11,6 +11,7 @@ using Vigil.Domain.Detection;
 using Vigil.Graph;
 using Vigil.Infrastructure;
 using Vigil.Infrastructure.Alerts;
+using Vigil.Infrastructure.Audit;
 using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
 using Vigil.Infrastructure.Fraud;
@@ -19,6 +20,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddNpgsqlDbContext<VigilDbContext>("vigil");
+builder.Services.AddLlm(builder.Configuration);
+builder.Services.AddInvestigations();
 
 // Loaded once at startup so a malformed rules file stops the API rather than failing mid-ingest (ADR-0002).
 var rulesPath = builder.Configuration["Rules:Path"] ?? throw new InvalidOperationException("Rules:Path is not configured.");
@@ -38,8 +41,14 @@ builder.Services.AddScoped<EventStore>();
 builder.Services.AddScoped<AlertStore>();
 builder.Services.AddScoped<CaseStore>();
 builder.Services.AddScoped<ConfirmedFraudStore>();
+builder.Services.AddScoped<AuditStore>();
 builder.Services.AddScoped<Ingestion>();
 builder.Services.AddScoped<GraphRebuild>();
+
+builder.Services.Configure<InvestigationOptions>(builder.Configuration.GetSection("Investigation"));
+builder.Services.Configure<InterventionOptions>(builder.Configuration.GetSection("Intervention"));
+builder.Services.AddSingleton<ICaseQueue, ChannelCaseQueue>();
+builder.Services.AddHostedService<InvestigationWorker>();
 builder.Services.AddProblemDetails();
 builder.Services.AddOpenApi();
 builder.Services.ConfigureHttpJsonOptions(o => o.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));

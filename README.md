@@ -10,6 +10,8 @@ Vigil watches investor-portal account journeys and flags account takeover and re
 
 **Stage 1 — Deterministic MVP (in progress).** Each ingest scores its Accounts against `config/rules.v1.json` and stores an Alert with Rule Hits and evidence EventIds; an Alert reaching High opens a Case: `GET /alerts?band=`, `GET /alerts/{id}`, `GET /cases?status=`, `GET /rules`. A rules-only evaluation scores a seeded, labelled Dataset and writes a report to `eval-reports/`.
 
+**Stage 3 — Agentic investigation with MAF.** A Case opened by a High Alert is investigated in the background by a Microsoft Agent Framework workflow: an Investigator agent with three Account-bound tools, code validation of its Evidence Refs, and a Reviewer agent, all on masked Pseudonyms. The workflow pauses for an Analyst Decision, checkpointed in Postgres, and Act records the Intervention and Audit Entries. See [Margaret's Investigation](#margarets-investigation-stage-3-demo).
+
 ## Quick start
 
 Prerequisites: .NET 10 SDK, Docker.
@@ -85,13 +87,71 @@ dotnet run --project src/Vigil.Api -- rebuild-graph
 
 Neo4j Browser: http://localhost:7474 (user `neo4j`, password in the AppHost's user-secrets: `dotnet user-secrets list --project src/Vigil.AppHost`).
 
+## Margaret's Investigation (Stage 3 demo)
+
+The free demo uses the `Fake` provider, the Development default: a scripted Investigator that makes one graph tool call and writes a ref-cited Finding, and a Reviewer that approves. No key and no spend.
+
+1. Start everything: `dotnet run --project src/Vigil.AppHost`, and open the dashboard.
+2. Click **Start** on `simulator`. Margaret's batch opens a Case, which the worker investigates in the background.
+3. List the Cases waiting for a decision, worst first, and take Margaret's `id`:
+
+   ```bash
+   curl "http://localhost:5107/cases?status=AwaitingApproval"
+   ```
+
+4. Read the Case: the unmasked Finding (verdict, confidence, summary with her real AccountId, recommendation), each cited Evidence Ref resolved to EventIds, and the Review Flag and InvestigationFailed flags:
+
+   ```bash
+   curl http://localhost:5107/cases/<id>
+   ```
+
+5. Restart the API mid-approval: **Stop**, then **Start**, on the `api` resource in the dashboard. The Case is still AwaitingApproval; its workflow checkpoint is in Postgres.
+6. Decide. The workflow resumes from the checkpoint without calling the model, and Act records the Analyst Decision and its Intervention and closes the Case:
+
+   ```bash
+   curl -X POST http://localhost:5107/cases/<id>/decision -H "Content-Type: application/json" \
+     -d '{"outcome":"ConfirmedFraud","action":"BlockBankChanges","analystId":"analyst-7","notes":"Holder confirmed by phone it was not her."}'
+   ```
+
+7. Read the audit: InvestigationCompleted and ReviewCompleted (actor, model, Prompt Version, Rules Version, cited refs with EventIds, tokens), then DecisionRecorded and ActionTaken with the analyst:
+
+   ```bash
+   curl http://localhost:5107/cases/<id>/audit
+   ```
+
+In the dashboard's **Traces** view, Margaret's ingest request is one trace: `POST /events`, `graph.project`, `detect` and `graph.rules` per Account, then `investigate case` with the workflow's spans, `invoke_agent Investigator(vigil-investigator)` with its `chat` and `execute_tool QueryGraphNeighbourhood` spans, and `invoke_agent Reviewer(vigil-reviewer)`. The decision is its own trace, under `POST /cases/{id}/decision`, and its `decide case` span links back to `investigate case`. **Metrics** has `vigil.llm.tokens` (by `agent` and `direction`), `vigil.llm.cost` (£ per Investigation) and `vigil.investigation.duration`; with Fake, tokens and cost are 0.
+
+### Using Azure OpenAI
+
+1. Put the real key in the AppHost's user-secrets, replacing the generated placeholder:
+
+   ```bash
+   dotnet user-secrets set "Parameters:azure-openai-key" "<key>" --project src/Vigil.AppHost
+   ```
+
+2. Switch the provider and name the resource and deployment, in `src/Vigil.Api/appsettings.Development.json` or as environment variables on the `api` resource:
+
+   ```json
+   "Llm": {
+     "Provider": "AzureOpenAI",
+     "Endpoint": "https://<resource>.openai.azure.com/",
+     "Deployment": "<deployment name>"
+   }
+   ```
+
+   The API checks these at startup and names any that are missing. Set `Llm:InputPricePer1kTokens` and `Llm:OutputPricePer1kTokens` (in £) to your deployment's prices so `vigil.llm.cost` and the token log lines match the Azure cost view.
+
+3. Restart the AppHost.
+
+**Budget warning:** every new Case now costs real tokens. `Investigation:DailyLimit` (default 20 per UTC day) caps Investigations started; Cases over it stay Open, marked not investigated, and are not re-queued. Set `Investigation:Enabled` to `false` before replaying a large Dataset into the API. Each LLM call logs its tokens and estimated £, so spend can be reconciled call by call.
+
 ## Tests
 
 ```bash
 dotnet test
 ```
 
-API tests start a throwaway Postgres container via Testcontainers.
+API tests start throwaway Postgres and Neo4j containers via Testcontainers, so Docker must be running. No test calls a real LLM.
 
 ## Layout
 

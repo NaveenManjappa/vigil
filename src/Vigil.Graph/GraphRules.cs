@@ -1,6 +1,7 @@
 using Neo4j.Driver;
 using Vigil.Domain.Detection;
 using Vigil.Domain.Events;
+using Vigil.Domain.Telemetry;
 
 namespace Vigil.Graph;
 
@@ -33,6 +34,9 @@ public sealed class GraphRules(IDriver driver)
 
     public async Task<IReadOnlyList<RuleHit>> HitsForAsync(string accountId, RuleSet ruleSet, CancellationToken ct)
     {
+        using var span = VigilTelemetry.Source.StartActivity("graph.rules");
+        span?.SetTag("vigil.account_id", accountId);
+
         var hits = new List<RuleHit>();
         foreach (var rule in ruleSet.Rules.Where(r => r.Kind == RuleKind.Graph))
         {
@@ -45,6 +49,7 @@ public sealed class GraphRules(IDriver driver)
             });
         }
 
+        span?.SetTag("vigil.hits", hits.Count);
         return hits;
     }
 
@@ -54,6 +59,7 @@ public sealed class GraphRules(IDriver driver)
     /// </summary>
     public async Task<IReadOnlyList<string>> NeighboursOfAsync(IReadOnlyCollection<PortalEvent> batch, CancellationToken ct)
     {
+        using var span = VigilTelemetry.Source.StartActivity("graph.neighbours");
         var batchAccounts = batch.Select(e => e.AccountId).Distinct().ToList();
         var neighbours = new SortedSet<string>(StringComparer.Ordinal);
 

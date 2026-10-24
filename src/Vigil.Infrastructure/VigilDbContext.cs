@@ -2,9 +2,11 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Vigil.Infrastructure.Alerts;
+using Vigil.Infrastructure.Audit;
 using Vigil.Infrastructure.Cases;
 using Vigil.Infrastructure.Events;
 using Vigil.Infrastructure.Fraud;
+using Vigil.Infrastructure.Workflow;
 
 namespace Vigil.Infrastructure;
 
@@ -14,6 +16,8 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
     public DbSet<StoredAlert> Alerts => Set<StoredAlert>();
     public DbSet<StoredCase> Cases => Set<StoredCase>();
     public DbSet<StoredConfirmedFraud> ConfirmedFrauds => Set<StoredConfirmedFraud>();
+    public DbSet<StoredCheckpoint> Checkpoints => Set<StoredCheckpoint>();
+    public DbSet<StoredAuditEntry> AuditEntries => Set<StoredAuditEntry>();
 
     /// <summary>
     /// Serialises detection for one Account across concurrent requests, so two ingests cannot both
@@ -25,6 +29,19 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         ConfigureAlerts(modelBuilder);
+        ConfigureDecisions(modelBuilder);
+
+        var checkpoints = modelBuilder.Entity<StoredCheckpoint>();
+        checkpoints.ToTable("workflow_checkpoints");
+        checkpoints.HasKey(c => c.Position);
+        checkpoints.Property(c => c.Position).UseIdentityAlwaysColumn();
+        checkpoints.Property(c => c.SessionId).HasMaxLength(64);
+        checkpoints.Property(c => c.CheckpointId).HasMaxLength(64);
+        checkpoints.Property(c => c.ParentId).HasMaxLength(64);
+        checkpoints.HasIndex(c => new { c.SessionId, c.CheckpointId }).IsUnique();
+        // json, not jsonb: jsonb reorders keys, and System.Text.Json reads polymorphic payloads only when their
+        // type marker comes first.
+        checkpoints.Property(c => c.Payload).HasColumnType("json");
 
         var frauds = modelBuilder.Entity<StoredConfirmedFraud>();
         frauds.ToTable("confirmed_frauds");
@@ -54,10 +71,61 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
             .HasConversion(
                 v => JsonSerializer.Serialize(v, JsonSerializerOptions.Default),
                 v => JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonSerializerOptions.Default) ?? new(),
-                new ValueComparer<Dictionary<string, string>>(
-                    (a, b) => a!.Count == b!.Count && !a.Except(b).Any(),
-                    v => v.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key, kv.Value)),
-                    v => new Dictionary<string, string>(v)));
+                StringMapComparer);
+    }
+
+    // Compares by content, so EF notices an entry changed inside the same dictionary instance. Null-safe because a
+    // Case has no pseudonym map until its Investigation runs.
+    private static readonly ValueComparer<Dictionary<string, string>?> StringMapComparer = new(
+        (a, b) => a == null ? b == null : b != null && a.Count == b.Count && !a.Except(b).Any(),
+        v => v == null ? 0 : v.Aggregate(0, (h, kv) => HashCode.Combine(h, kv.Key, kv.Value)),
+        v => v == null ? null : new Dictionary<string, string>(v));
+
+    private static readonly ValueComparer<Dictionary<string, List<Guid>>?> RefMapComparer = new(
+        (a, b) => JsonSerializer.Serialize(a, JsonSerializerOptions.Default) == JsonSerializer.Serialize(b, JsonSerializerOptions.Default),
+        v => JsonSerializer.Serialize(v, JsonSerializerOptions.Default).GetHashCode(),
+        v => v == null ? null : v.ToDictionary(e => e.Key, e => e.Value.ToList()));
+
+    private static void ConfigureDecisions(ModelBuilder modelBuilder)
+    {
+        var decisions = modelBuilder.Entity<StoredAnalystDecision>();
+        decisions.ToTable("analyst_decisions");
+        // The key is the Case, so a second decision on one Case fails at the database, whatever raced to make it.
+        decisions.HasKey(d => d.CaseId);
+        decisions.Property(d => d.Outcome).HasMaxLength(32);
+        decisions.Property(d => d.Action).HasMaxLength(32);
+        decisions.Property(d => d.AnalystId).HasMaxLength(64);
+        modelBuilder.Entity<StoredCase>().HasOne(c => c.Decision).WithOne().HasForeignKey<StoredAnalystDecision>(d => d.CaseId);
+
+        var interventions = modelBuilder.Entity<StoredIntervention>();
+        interventions.ToTable("interventions");
+        interventions.HasKey(i => i.CaseId);
+        interventions.Property(i => i.AccountId).HasMaxLength(64);
+        interventions.Property(i => i.Kind).HasConversion<string>().HasMaxLength(32);
+        // The portal asks "what applies to this Account?", not "what did this Case record?".
+        interventions.HasIndex(i => i.AccountId);
+        modelBuilder.Entity<StoredCase>().HasOne(c => c.Intervention).WithOne().HasForeignKey<StoredIntervention>(i => i.CaseId);
+
+        var audit = modelBuilder.Entity<StoredAuditEntry>();
+        audit.ToTable("audit_entries");
+        audit.HasKey(a => a.Position);
+        audit.Property(a => a.Position).UseIdentityAlwaysColumn();
+        audit.HasIndex(a => a.CaseId);
+        audit.Property(a => a.Kind).HasConversion<string>().HasMaxLength(32);
+        audit.Property(a => a.Actor).HasMaxLength(64);
+        audit.Property(a => a.Model).HasMaxLength(128);
+        audit.Property(a => a.PromptVersion).HasMaxLength(64);
+        audit.Property(a => a.RulesVersion).HasMaxLength(32);
+        audit.Property(a => a.Refs)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => JsonSerializer.Serialize(v, JsonSerializerOptions.Default),
+                v => JsonSerializer.Deserialize<List<AuditRef>>(v, JsonSerializerOptions.Default) ?? new(),
+                new ValueComparer<List<AuditRef>>(
+                    (a, b) => JsonSerializer.Serialize(a, JsonSerializerOptions.Default) == JsonSerializer.Serialize(b, JsonSerializerOptions.Default),
+                    v => JsonSerializer.Serialize(v, JsonSerializerOptions.Default).GetHashCode(),
+                    v => v.ToList()));
+        // No foreign key to cases: an Audit Entry must outlive anything it refers to.
     }
 
     private static void ConfigureAlerts(ModelBuilder modelBuilder)
@@ -83,6 +151,28 @@ public sealed class VigilDbContext(DbContextOptions<VigilDbContext> options) : D
         cases.ToTable("cases");
         cases.HasKey(c => c.CaseId);
         cases.Property(c => c.Status).HasConversion<string>().HasMaxLength(32);
+        cases.Property(c => c.PromptVersion).HasMaxLength(64);
+        // A W3C traceparent is 55 characters.
+        cases.Property(c => c.InvestigationTrace).HasMaxLength(64);
+
+        // Kept as raw JSON here: the Finding's shape belongs to Vigil.Agents, which Infrastructure does not reference.
+        cases.Property(c => c.Finding).HasColumnType("jsonb");
+        cases.Property(c => c.EvidenceRefs)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, JsonSerializerOptions.Default),
+                v => v == null ? null : JsonSerializer.Deserialize<Dictionary<string, List<Guid>>>(v, JsonSerializerOptions.Default),
+                RefMapComparer);
+        cases.Property(c => c.PseudonymMap)
+            .HasColumnType("jsonb")
+            .HasConversion(
+                v => v == null ? null : JsonSerializer.Serialize(v, JsonSerializerOptions.Default),
+                v => v == null ? null : JsonSerializer.Deserialize<Dictionary<string, string>>(v, JsonSerializerOptions.Default),
+                StringMapComparer);
+
+        // The worker's startup re-queue and the daily limit both filter on these.
+        cases.HasIndex(c => c.Status);
+        cases.HasIndex(c => c.InvestigationStartedAt);
 
         // One-to-one with a unique AlertId, so the database itself refuses a second Case for an Alert.
         alerts.HasOne(a => a.Case).WithOne(c => c.Alert).HasForeignKey<StoredCase>(c => c.AlertId);

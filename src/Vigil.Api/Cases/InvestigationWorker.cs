@@ -1,0 +1,103 @@
+using System.Diagnostics;
+using Microsoft.Extensions.Options;
+using Vigil.Domain.Cases;
+using Vigil.Domain.Telemetry;
+using Vigil.Infrastructure.Cases;
+
+namespace Vigil.Api.Cases;
+
+/// <summary>
+/// Runs each queued Case's one Investigation, within the budget guard. One Case at a time keeps the daily limit
+/// a simple count and LLM spend predictable; it assumes a single API instance (ADR-0004).
+/// </summary>
+public sealed class InvestigationWorker(
+    ICaseQueue queue, IServiceScopeFactory scopes, IOptions<InvestigationOptions> options,
+    TimeProvider clock, ILogger<InvestigationWorker> logger) : BackgroundService
+{
+    private IReadOnlyList<Guid> _unfinished = [];
+
+    // Read here because hosted services start before the server takes requests, so the list cannot include a
+    // Case opened by this run, which arrives on the queue instead.
+    public override async Task StartAsync(CancellationToken cancellationToken)
+    {
+        using (var scope = scopes.CreateScope())
+            _unfinished = await scope.ServiceProvider.GetRequiredService<CaseStore>().UnfinishedInvestigationsAsync(cancellationToken);
+
+        if (_unfinished.Count > 0) logger.LogInformation("Resuming {Count} unfinished Investigations", _unfinished.Count);
+        await base.StartAsync(cancellationToken);
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        // A crash loses the in-memory queue and can interrupt a run, but the Cases are still in Postgres.
+        // Their ingest requests' traces are long gone, so each starts a trace of its own.
+        foreach (var caseId in _unfinished) await InvestigateSafelyAsync(caseId, openedIn: default, stoppingToken);
+
+        await foreach (var item in queue.DequeueAllAsync(stoppingToken))
+            await InvestigateSafelyAsync(item.CaseId, item.OpenedIn, stoppingToken);
+    }
+
+    private async Task InvestigateSafelyAsync(Guid caseId, ActivityContext openedIn, CancellationToken ct)
+    {
+        // A default parent would make StartActivity fall back to whatever is current, so with no ingest trace to
+        // join the span is made a root explicitly.
+        if (openedIn == default) Activity.Current = null;
+
+        // A child of the ingest request, so one trace runs from ingestion through detection and the graph to both
+        // agents; the workflow's own spans nest under this one because it is current when the run starts.
+        using var span = VigilTelemetry.Source.StartActivity("investigate case", ActivityKind.Internal, openedIn);
+        span?.SetTag("vigil.case_id", caseId.ToString());
+
+        try
+        {
+            await InvestigateAsync(caseId, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // The Case stays Investigating, so a later startup tries it again within that day's budget; one bad Case
+            // must not stop the rest.
+            logger.LogError(ex, "Investigation of Case {CaseId} failed", caseId);
+            span?.SetStatus(ActivityStatusCode.Error, ex.Message);
+        }
+    }
+
+    private async Task InvestigateAsync(Guid caseId, CancellationToken ct)
+    {
+        using var scope = scopes.CreateScope();
+        var cases = scope.ServiceProvider.GetRequiredService<CaseStore>();
+
+        var @case = await cases.FindAsync(caseId, ct);
+        if (@case is null || @case.Status is not (CaseStatus.Open or CaseStatus.Investigating)) return;
+
+        // An Investigating Case was interrupted mid-run, or failed in a way that may fail again, so a re-run is held to
+        // the budget like a first run: a Case that always fails must not spend LLM calls on every restart.
+        var now = clock.GetUtcNow();
+        if (!await WithinBudgetAsync(cases, now, ct))
+        {
+            // An Investigating one is left as it is, to be tried again on a later day's budget.
+            if (@case.Status == CaseStatus.Open)
+            {
+                @case.NotInvestigated = true;
+                await cases.SaveAsync(ct);
+            }
+            logger.LogInformation("Case {CaseId} left {Status} and not investigated by the budget guard", caseId, @case.Status);
+            return;
+        }
+
+        // Restamped on a re-run, so it counts against the day it runs in.
+        @case.Status = CaseStatus.Investigating;
+        @case.InvestigationStartedAt = now;
+        await cases.SaveAsync(ct);
+
+        await scope.ServiceProvider.GetRequiredService<IInvestigationRunner>().RunAsync(caseId, ct);
+    }
+
+    private async Task<bool> WithinBudgetAsync(CaseStore cases, DateTimeOffset now, CancellationToken ct)
+    {
+        var limits = options.Value;
+        if (!limits.Enabled) return false;
+
+        var startOfUtcDay = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
+        return await cases.InvestigationsStartedSinceAsync(startOfUtcDay, ct) < limits.DailyLimit;
+    }
+}

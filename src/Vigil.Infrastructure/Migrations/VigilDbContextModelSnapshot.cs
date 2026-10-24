@@ -95,6 +95,94 @@ namespace Vigil.Infrastructure.Migrations
                     b.ToTable("rule_hits", (string)null);
                 });
 
+            modelBuilder.Entity("Vigil.Infrastructure.Audit.StoredAuditEntry", b =>
+                {
+                    b.Property<long>("Position")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Position"));
+
+                    b.Property<string>("Actor")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("At")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("CaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("text");
+
+                    b.Property<long>("InputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long>("OutputTokens")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("PromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Refs")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("RulesVersion")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("Position");
+
+                    b.HasIndex("CaseId");
+
+                    b.ToTable("audit_entries", (string)null);
+                });
+
+            modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredAnalystDecision", b =>
+                {
+                    b.Property<Guid>("CaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<string>("AnalystId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("DecidedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Notes")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Outcome")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.HasKey("CaseId");
+
+                    b.ToTable("analyst_decisions", (string)null);
+                });
+
             modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredCase", b =>
                 {
                     b.Property<Guid>("CaseId")
@@ -104,8 +192,37 @@ namespace Vigil.Infrastructure.Migrations
                     b.Property<Guid>("AlertId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("EvidenceRefs")
+                        .HasColumnType("jsonb");
+
+                    b.Property<string>("Finding")
+                        .HasColumnType("jsonb");
+
+                    b.Property<bool>("InvestigationFailed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTimeOffset?>("InvestigationStartedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("InvestigationTrace")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<bool>("NotInvestigated")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTimeOffset>("OpenedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PromptVersion")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("PseudonymMap")
+                        .HasColumnType("jsonb");
+
+                    b.Property<bool>("ReviewFlagged")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -117,7 +234,39 @@ namespace Vigil.Infrastructure.Migrations
                     b.HasIndex("AlertId")
                         .IsUnique();
 
+                    b.HasIndex("InvestigationStartedAt");
+
+                    b.HasIndex("Status");
+
                     b.ToTable("cases", (string)null);
+                });
+
+            modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredIntervention", b =>
+                {
+                    b.Property<Guid>("CaseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AccountId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)");
+
+                    b.Property<DateTimeOffset>("RecordedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("Until")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("CaseId");
+
+                    b.HasIndex("AccountId");
+
+                    b.ToTable("interventions", (string)null);
                 });
 
             modelBuilder.Entity("Vigil.Infrastructure.Events.StoredEvent", b =>
@@ -194,11 +343,57 @@ namespace Vigil.Infrastructure.Migrations
                     b.ToTable("confirmed_frauds", (string)null);
                 });
 
+            modelBuilder.Entity("Vigil.Infrastructure.Workflow.StoredCheckpoint", b =>
+                {
+                    b.Property<long>("Position")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityAlwaysColumn(b.Property<long>("Position"));
+
+                    b.Property<string>("CheckpointId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ParentId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Payload")
+                        .IsRequired()
+                        .HasColumnType("json");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Position");
+
+                    b.HasIndex("SessionId", "CheckpointId")
+                        .IsUnique();
+
+                    b.ToTable("workflow_checkpoints", (string)null);
+                });
+
             modelBuilder.Entity("Vigil.Infrastructure.Alerts.StoredRuleHit", b =>
                 {
                     b.HasOne("Vigil.Infrastructure.Alerts.StoredAlert", null)
                         .WithMany("Hits")
                         .HasForeignKey("AlertId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredAnalystDecision", b =>
+                {
+                    b.HasOne("Vigil.Infrastructure.Cases.StoredCase", null)
+                        .WithOne("Decision")
+                        .HasForeignKey("Vigil.Infrastructure.Cases.StoredAnalystDecision", "CaseId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
@@ -214,11 +409,27 @@ namespace Vigil.Infrastructure.Migrations
                     b.Navigation("Alert");
                 });
 
+            modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredIntervention", b =>
+                {
+                    b.HasOne("Vigil.Infrastructure.Cases.StoredCase", null)
+                        .WithOne("Intervention")
+                        .HasForeignKey("Vigil.Infrastructure.Cases.StoredIntervention", "CaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("Vigil.Infrastructure.Alerts.StoredAlert", b =>
                 {
                     b.Navigation("Case");
 
                     b.Navigation("Hits");
+                });
+
+            modelBuilder.Entity("Vigil.Infrastructure.Cases.StoredCase", b =>
+                {
+                    b.Navigation("Decision");
+
+                    b.Navigation("Intervention");
                 });
 #pragma warning restore 612, 618
         }

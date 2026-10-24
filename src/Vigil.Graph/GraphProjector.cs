@@ -1,6 +1,7 @@
 using Neo4j.Driver;
 using Vigil.Domain.Events;
 using Vigil.Domain.Fraud;
+using Vigil.Domain.Telemetry;
 
 namespace Vigil.Graph;
 
@@ -30,6 +31,8 @@ public sealed class GraphProjector(IDriver driver)
     public async Task ProjectAsync(IReadOnlyCollection<PortalEvent> batch, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
+        using var span = VigilTelemetry.Source.StartActivity("graph.project");
+        span?.SetTag("vigil.events", batch.Count);
 
         // One transaction per batch, so a failure leaves no half-projected batch behind; the driver retries transient errors.
         await using var session = driver.AsyncSession();

@@ -77,7 +77,7 @@ Said of an Account in evaluation when any of its Alerts reached High or above at
 _Avoid_: detected, caught, alerted (an Account can have an Alert without being flagged)
 
 **Case**:
-The work item an analyst picks up for one Alert, opened with status Open the first time that Alert reaches High. An Alert has at most one Case: reaching Critical later raises the Case's priority but opens no second one. The queue orders Cases by Risk Band, then Score, then time opened. In the Projection, a Case node with outcome ConfirmedFraud marks a Confirmed Fraud; seeded ones have no Alert behind them, and Stage 3's decided Cases will write the same node.
+The work item an analyst picks up for one Alert, opened with status Open the first time that Alert reaches High. It moves Open → Investigating → AwaitingApproval → Closed: one Investigation runs on it, it waits for an Analyst Decision, and the decision closes it. An Alert has at most one Case and a Case has at most one Investigation: reaching Critical later raises the Case's priority but opens no second Case and starts no second Investigation. The queue orders Cases by Risk Band, then Score, then time opened. In the Projection, a Case node with outcome ConfirmedFraud marks a Confirmed Fraud; seeded ones have no Alert behind them.
 _Avoid_: ticket, investigation, alert (the Alert is detection's verdict; the Case is the work done on it)
 
 **Rules Version**:
@@ -96,14 +96,54 @@ _Avoid_: shared attribute, key, identifier (alone, when IP and Address are exclu
 An Account outside an ingested batch that shares a Linking Identifier with one of the batch's events, or an Account that shares one with a newly recorded Confirmed Fraud Account. A new link or a new Confirmed Fraud can change its Graph Rule Hits, so ingestion re-checks it in the same request (ADR-0015).
 _Avoid_: related account, connected account (a Ring is a different, larger thing)
 
+**Neighbourhood**:
+What the Projection knows about one Account's links, one hop out: each of its Linking Identifiers, the other Accounts on each, and whether each of those is Confirmed Fraud. The Investigator reads it through its graph tool (ADR-0007).
+_Avoid_: subgraph, network, Neighbour (a Neighbour is an Account ingestion re-checks)
+
 **Graph Rule**:
 A Rule that matches links between Accounts in the Projection rather than events on one Account, written as one short, one-hop Cypher query: G1 Shared bank account, where an Account pays out to a BankAccount that another Holder's Account also pays out to; G2 Known-fraud proximity, where it shares a Linking Identifier with a Confirmed Fraud Account; and G3 Ring indicator, where the Account is in a Ring. It reads the graph as it is now and returns candidate Rule Hits that the Detector places in Risk Episodes like any other. Its trigger time is the OccurredAt of the event that completed the link, and its evidence is the linking events on every Account involved, with that event last (ADR-0014).
 _Avoid_: graph feature, graph check, network rule
 
 **Confirmed Fraud**:
-An Account known to be fraud, recorded with the time it was decided and its source: Seed for now, from a Scenario's `confirmedFraud` date, and analyst decisions from Stage 3. An Account is Confirmed Fraud at most once, so recording it again keeps the first decision. It is projected as `(:Case {outcome: 'ConfirmedFraud'})-[:CONCERNS]->(:Account)`, which G2 looks for. The generated Dataset has none, so Labels never leak into detection.
+An Account known to be fraud, recorded with the time it was decided and its source: Seed, from a Scenario's `confirmedFraud` date, or Analyst, from an Analyst Decision with outcome ConfirmedFraud. An Account is Confirmed Fraud at most once, so recording it again keeps the first decision. It is projected as `(:Case {outcome: 'ConfirmedFraud'})-[:CONCERNS]->(:Account)`, which G2 looks for. The generated Dataset has none, so Labels never leak into detection.
 _Avoid_: known fraudster, blacklisted, fraud label (a Label is evaluation's ground truth)
 
 **Ring**:
 A group of at least the rules file's `accountThreshold` (3) Accounts that share one Linking Identifier, such as one device or one bank account; G3 scores each member. Only Accounts on the same identifier count, not a group joined through a chain of different identifiers (ADR-0014). An Account's Holder does not matter, so a Holder's own Accounts can form one. A G3 hit's evidence is the earliest links that brought the group, with this Account in it, to the threshold.
 _Avoid_: gang, cluster, network, connected component (a component would follow links through any number of hops)
+
+**Investigation**:
+The AI work done on one Case before a human sees it: the Investigator agent gathers evidence about the Case's Account and writes a Finding, and the Reviewer agent checks it. It only recommends; nothing changes until an Analyst Decision. When Investigations are switched off or the daily limit is reached, the Case waits Open, marked not investigated.
+_Avoid_: case (the Case is the work item), analysis, agent run
+
+**Finding**:
+The Investigator's written conclusion on a Case: a verdict (LikelyAccountTakeover, LikelyRegistrationFraud, Inconclusive or LikelyGenuine), a confidence, a short summary, a recommended action and the Evidence Refs it cites. An Investigation whose agents failed has no Finding and is flagged InvestigationFailed.
+_Avoid_: summary (alone), verdict (alone), report, result
+
+**Evidence Ref**:
+A short label an Investigation gives one piece of evidence so the agents can cite it: `E-n` for a Portal Event, `G-n` for a fact from the Projection, each standing for the EventIds behind it. Refs are numbered per Investigation, and a Finding citing a ref that does not exist is rejected before review.
+_Avoid_: evidence ID, citation, reason code
+
+**Pseudonym**:
+The stand-in an Investigation uses for an identifier before any text reaches an LLM, such as `ACCOUNT-1` or `DEVICE-2`. Pseudonyms are numbered per Investigation, so the same device has different pseudonyms in different Cases; only the analyst-facing view turns them back into real identifiers.
+_Avoid_: mask, token, alias, hash
+
+**Review Flag**:
+The mark on a Finding the Reviewer rejected even after the Investigator's one retry. The Finding still reaches the analyst, flagged, so it is read with extra scepticism.
+_Avoid_: warning, low confidence (confidence is the Investigator's own rating)
+
+**Analyst Decision**:
+A named analyst's ruling on a Case: an outcome (ConfirmedFraud or FalsePositive), an action (BlockBankChanges, ContactHolder or NoAction), and notes. The action may differ from the Finding's recommendation. It closes the Case, and a ConfirmedFraud outcome makes the Account a Confirmed Fraud.
+_Avoid_: approval (alone), verdict, label (a Label is evaluation's ground truth)
+
+**Intervention**:
+The instruction recorded when an Analyst Decision's action is carried out, such as blocking bank-detail changes until a date or contacting the Holder by post. Vigil records it for the portal to enforce; it does not stop later Portal Events itself.
+_Avoid_: block (alone), action (the action is what the analyst chose; the Intervention is its record), freeze
+
+**Prompt Version**:
+The version of an agent's instructions in force for an Investigation, named by its prompt file, stored with the Case and every Audit Entry so the AI's reasoning can be reproduced, as the Rules Version does for detection.
+_Avoid_: prompt ID, template version, model version (the model is recorded separately)
+
+**Audit Entry**:
+An append-only record of one step in a Case's life after detection: an Investigation completed, a review completed, a decision recorded or an action taken. It names who or what acted, the model and Prompt Version where AI was involved, the Rules Version, the evidence used and the tokens spent. It is never changed once written.
+_Avoid_: log line, history, event (a Portal Event is something done on an Account)

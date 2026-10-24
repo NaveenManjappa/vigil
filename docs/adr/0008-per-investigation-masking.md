@@ -1,0 +1,13 @@
+# Identifiers are masked per Investigation, by value, with the map stored on the Case
+
+Before any text reaches an LLM, every identifier in it is swapped for a Pseudonym. Each Investigation has its own `PseudonymMasker`: Enrich and each tool register the identifiers they hand over (AccountId, HolderId, Email, Phone, BankAccount, Address, IP and DeviceId) and get the next number for that kind, `ACCOUNT-1`, `DEVICE-2`. Event types, timestamps, country, channel, amounts and Rule Ids are kept, because the agents reason on them and they identify no one. Portal Event attributes are masked by default: only allow-listed ones (`Amount`) are shown as they are, the known identifier attributes get their kind's Pseudonym, and any other, such as a field the portal adds later, gets a generic `VALUE-n`. A value under four characters is withheld rather than registered, because a registered value is masked wherever it appears and would be cut out of timestamps and refs.
+
+Masking replaces registered **values** wherever they appear in a string, not named fields. Rule Hit explanations are rendered templates ("D-77 shared by ACC-DEREK, ACC-PRIYA"), so a field-based masker would leak whatever the template put in the text. Values are matched in one regex pass, longest first, so `ACC-PRIYA` is never masked as `ACC-PRI` plus "YA", and a Pseudonym already written is never re-scanned. Unmasking runs the same pass in reverse, which keeps `ACCOUNT-10` from being read as `ACCOUNT-1` plus "0". Over-masking is the safe failure: a registered value inside a longer unregistered word is still masked.
+
+Pseudonyms are numbered per Investigation, so the same device is `DEVICE-1` in one Case and `DEVICE-3` in another, and prompts cannot be correlated across Cases. PROJECT.md Section 9.4 sketched hash-style Pseudonyms (`HOLDER-7f3a`); sequential numbers are shorter in prompts and easier to read aloud in a demo, and the per-Investigation scope gives the unlinkability a salted hash would. The map (Pseudonym to real value) is stored with the Case. The Finding is stored masked and unmasked only in the analyst-facing Case read, by a masker rebuilt from that map, which numbers any new value after the stored ones.
+
+## Considered Options
+
+- **Field-based masking** (mask `DeviceId`, `Email`... on the event records): simple, but misses identifiers inside free text such as Rule Hit explanations.
+- **Global stable Pseudonyms** (one per identifier across all Cases): the LLM could link Cases, and the map becomes a long-lived store of personal data.
+- **Hashing identifiers**: no map to keep, but a deterministic hash is a global Pseudonym, and the analyst view still needs a way back.
