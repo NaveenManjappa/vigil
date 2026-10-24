@@ -18,6 +18,15 @@ public static class AgentSamples
          "recommendation":"ContactHolder","evidence":["{{evidenceRef}}"]}
         """;
 
+    /// <summary>A Judge's reply, each reason naming its score so a test can tell the criteria apart.</summary>
+    public static string Judgement(int grounded, int reasoning, int recommendation, int clarity) => $$"""
+        {"groundedClaims":{"score":{{grounded}},"reason":"Scored {{grounded}}."},
+         "soundReasoning":{"score":{{reasoning}},"reason":"Scored {{reasoning}}."},
+         "proportionateRecommendation":{"score":{{recommendation}},"reason":"Scored {{recommendation}}."},
+         "clarity":{"score":{{clarity}},"reason":"Scored {{clarity}}."}
+        }
+        """;
+
     /// <summary>A usual login, then a password reset from a new device that is the Alert's only evidence, so the brief shows E-1.</summary>
     public static (LabelledAccount Account, SampledAccount Sampled) Account(string id, Label label, bool isNearMiss)
     {

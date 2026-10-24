@@ -90,7 +90,8 @@ foreach (var result in new[] { offResult, onResult })
 Console.WriteLine($"agents ({llm.Provider}{(agents.IsMeaningful ? "" : ", not meaningful")}): " +
     $"Evidence Grounding {agents.EvidenceGrounding.Count}/{agents.EvidenceGrounding.Of}, " +
     $"Verdict Agreement {agents.VerdictAgreement.Count}/{agents.VerdictAgreement.Of}, " +
-    $"{agents.Investigations.Sum(i => i.Tokens)} tokens, £{agents.Investigations.Sum(i => i.Cost)}");
+    $"{agents.Investigations.Sum(i => i.Tokens)} tokens, £{agents.Investigations.Sum(i => i.Cost)}; " +
+    $"Judge {agents.JudgedRate.Count}/{agents.JudgedRate.Of} judged, {agents.Investigations.Sum(i => i.JudgeTokens)} tokens");
 
 // The API's LLM wiring (ADR-0009), configured from environment variables such as Llm__Endpoint, Llm__Deployment and
 // Llm__ApiKey. The prices default to the API's appsettings.json, so the £ figures match its token log.
