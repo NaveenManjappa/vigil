@@ -5,7 +5,7 @@ How Vigil is built and how its parts work together. It covers the running system
 - **The Investigation:** the AI agents and the human approval they wait for.
 - **Evaluation and feedback:** the loop that measures the rules and agents and suggests rule changes.
 
-Domain terms (Portal Event, Rule Hit, Alert, Case, Finding and so on) are defined in [GLOSSARY.md](../GLOSSARY.md). Each design choice has an ADR in [adr/](adr/), cited inline. [runbook.md](runbook.md) has the commands, and [industrialisation.md](industrialisation.md) the production target.
+Domain terms (Portal Event, Rule Hit, Alert, Case, Finding and so on) are defined in [GLOSSARY.md](../GLOSSARY.md). Each design choice has an ADR in [adr/](adr/), cited inline. [user-guide.md](user-guide.md) has the commands, [runbook.md](runbook.md) the recovery steps, and [industrialisation.md](industrialisation.md) the production target.
 
 ## Contents
 
@@ -521,7 +521,7 @@ The Rule-Tuning Report learns from Analyst Decisions on live Cases, so the loop 
 3. **Build the report.** `Vigil.Evaluation tune` reads Analyst Decision → Case → Alert → Rule Hits from Postgres. A Rule's precision is the share of decided Cases containing it that were ConfirmedFraud. A Rule below 50% precision, with at least 5 decisions, gets a suggestion: halve its points, to the nearest 5, with a tie rounding up. Each suggestion has a What-if: detection is re-run over the Dataset with that one change, showing detection, false-positive and early-detection rates before and after.
 4. **A human decides.** If they accept a suggestion, they write a new rules file, re-run the evaluation to compare, and deploy it. Every Alert scored from then on records the new Rules Version (ADR-0002).
 
-The What-if is the point of the report: a noisy Rule can still be what carries fraud over the line. Lowering R2 quiets the Travelling holder, but it also delays Margaret's takeover past her email change. Whether that trade is worth it is a business judgement, which is why the system never makes it (ADR-0012).
+The What-if is the point of the report: a noisy Rule can still be what carries fraud over the line. Lowering R2 quiets the Travelling holder, but it also delays every takeover without graph evidence past its email change: in the first real report, early detection falls from 9/9 to 0. Margaret herself stays High, because G2 and G3 add 45 points. Whether that trade is worth it is a business judgement, which is why the system never makes it (ADR-0012).
 
 The report can only see Rules that reached a Case. Fraud the rules miss entirely never reaches an analyst, which is what Blind Spots and the detection rate are for.
 
