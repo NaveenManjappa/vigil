@@ -26,7 +26,10 @@ public sealed class ActStep(
 {
     public async Task ActAsync(Guid caseId, AnalystDecision decision, CancellationToken ct)
     {
-        var decidedAt = clock.GetUtcNow();
+        // At Postgres's microsecond precision, so the decision this request returns matches the one read back later;
+        // Linux clocks tick in 100ns and would otherwise differ in the last digit.
+        var now = clock.GetUtcNow();
+        var decidedAt = now.AddTicks(-(now.Ticks % TimeSpan.TicksPerMicrosecond));
         if (decision.Outcome != DecisionOutcome.ConfirmedFraud)
         {
             await RecordAsync(caseId, decision, decidedAt, ct);

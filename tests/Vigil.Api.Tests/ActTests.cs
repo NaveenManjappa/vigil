@@ -209,6 +209,27 @@ public sealed class ActTests(MeteredApiFactory factory) : IClassFixture<MeteredA
         Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/accounts/ACC-ACT-LATE/confirmed-fraud", Ct)).StatusCode);
     }
 
+    [Fact]
+    public async Task A_decision_made_on_a_sub_microsecond_clock_reads_back_exactly_as_it_was_returned()
+    {
+        // Linux clocks tick in 100ns, Postgres keeps microseconds; a fixed clock makes that visible on any machine.
+        await using var host = factory.WithWebHostBuilder(b => b.ConfigureTestServices(s =>
+            s.Replace(ServiceDescriptor.Singleton<TimeProvider>(new FixedClock(new DateTimeOffset(2026, 10, 24, 13, 35, 46, TimeSpan.Zero).AddTicks(8631984))))));
+        var client = host.CreateClient();
+        var caseId = await AwaitingApprovalAsync(client, "ACC-ACT-CLOCK");
+
+        var returned = (await (await DecideAsync(client, caseId, new(DecisionOutcome.FalsePositive, Recommendation.BlockBankChanges, "analyst-3", null)))
+            .Content.ReadFromJsonAsync<CaseDetail>(Json, Ct))!;
+        var read = (await client.GetFromJsonAsync<CaseDetail>($"/cases/{caseId}", Json, Ct))!;
+
+        Assert.Equal((returned.Decision, returned.Intervention), (read.Decision, read.Intervention));
+    }
+
+    private sealed class FixedClock(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
+    }
+
     private static async Task<AlertDetail?> NeighbourAlertAsync(HttpClient client)
     {
         var summary = (await client.GetFromJsonAsync<List<AlertSummary>>("/alerts", Json, Ct))!
