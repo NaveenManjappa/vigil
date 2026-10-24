@@ -125,6 +125,20 @@ public sealed class InvestigationWorkflowTests
     }
 
     [Fact]
+    public async Task A_decision_writes_no_checkpoint_so_a_racing_one_still_resumes_from_the_pause()
+    {
+        await Workflow(new RecordingChatClient().Replies(TakeoverFinding).Replies(Approve)).InvestigateAsync(CaseId, MargaretCase.Alert, Ct);
+        var paused = (await _checkpoints.RetrieveIndexAsync(CaseId.ToString())).ToList();
+
+        await Workflow(new RecordingChatClient()).DecideAsync(CaseId, Decision, Ct);
+        // The racing decision reaches Act too; in the API the one-decision-per-Case constraint turns it away.
+        await Workflow(new RecordingChatClient()).DecideAsync(CaseId, Decision, Ct);
+
+        Assert.Equal(paused, await _checkpoints.RetrieveIndexAsync(CaseId.ToString()));
+        Assert.Equal([(CaseId, Decision), (CaseId, Decision)], _act.Acted);
+    }
+
+    [Fact]
     public async Task A_decision_for_a_Case_that_never_paused_is_refused()
     {
         await Assert.ThrowsAsync<InvalidOperationException>(() =>

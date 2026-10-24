@@ -44,6 +44,9 @@ public sealed class ActStep(
     {
         // Read here, not passed in: inside the Confirmed Fraud transaction a retried attempt starts from a cleared tracker.
         var @case = await cases.FindWithAlertAsync(caseId, ct) ?? throw NotFound(caseId);
+        // The unique key only catches a decision still in flight; one already committed is loaded here, and
+        // assigning over it would quietly replace the first analyst's decision.
+        if (@case.Decision is not null) throw new DecisionAlreadyRecordedException(caseId);
 
         @case.Decision = new StoredAnalystDecision
         {

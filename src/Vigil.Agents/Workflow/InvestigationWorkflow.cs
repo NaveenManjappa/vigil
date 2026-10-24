@@ -41,8 +41,8 @@ public sealed class InvestigationWorkflow(
     /// <summary>Resumes the paused Investigation with the analyst's decision and runs Act.</summary>
     public async Task DecideAsync(Guid caseId, AnalystDecision decision, CancellationToken ct)
     {
-        var manager = Checkpoints();
         var latest = await LatestCheckpointAsync(caseId);
+        var manager = CheckpointManager.CreateJson(new DecisionCheckpointStore(checkpoints), ChatAgents.Json);
 
         await using var run = await InProcessExecution.ResumeStreamingAsync(Build(caseId), latest, manager, ct);
 

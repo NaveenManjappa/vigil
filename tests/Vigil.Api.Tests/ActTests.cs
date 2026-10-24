@@ -14,6 +14,7 @@ using Vigil.Api.Llm;
 using Vigil.Domain.Audit;
 using Vigil.Domain.Cases;
 using Vigil.Domain.Fraud;
+using Vigil.Infrastructure.Cases;
 
 namespace Vigil.Api.Tests;
 
@@ -178,7 +179,9 @@ public sealed class ActTests(MeteredApiFactory factory) : IClassFixture<MeteredA
             DecideAsync(client, caseId, new(DecisionOutcome.ConfirmedFraud, Recommendation.BlockBankChanges, "analyst-1", null)),
             DecideAsync(client, caseId, new(DecisionOutcome.FalsePositive, Recommendation.NoAction, "analyst-2", null)));
 
-        Assert.Equal([HttpStatusCode.OK, HttpStatusCode.Conflict], responses.Select(r => r.StatusCode).Order());
+        var statuses = responses.Select(r => r.StatusCode).Order().ToList();
+        if (!statuses.SequenceEqual([HttpStatusCode.OK, HttpStatusCode.Conflict]))
+            Assert.Fail(string.Join("\n", await Task.WhenAll(responses.Select(async r => $"{r.StatusCode}: {await r.Content.ReadAsStringAsync(Ct)}"))));
         var winner = (await responses.Single(r => r.IsSuccessStatusCode).Content.ReadFromJsonAsync<CaseDetail>(Json, Ct))!.Decision!;
         var @case = (await client.GetFromJsonAsync<CaseDetail>($"/cases/{caseId}", Json, Ct))!;
         Assert.Equal(winner, @case.Decision);
@@ -186,6 +189,24 @@ public sealed class ActTests(MeteredApiFactory factory) : IClassFixture<MeteredA
         Assert.Equal(2, (await AuditAsync(client, caseId)).Count(a => a.Kind is AuditEntryKind.DecisionRecorded or AuditEntryKind.ActionTaken));
         var fraud = await client.GetAsync("/accounts/ACC-ACT-RACE/confirmed-fraud", Ct);
         Assert.Equal(winner.Outcome == DecisionOutcome.ConfirmedFraud ? HttpStatusCode.OK : HttpStatusCode.NotFound, fraud.StatusCode);
+    }
+
+    [Fact]
+    public async Task A_decision_whose_Act_runs_after_another_has_committed_is_refused_and_leaves_the_first_in_place()
+    {
+        var client = factory.CreateClient();
+        var caseId = await AwaitingApprovalAsync(client, "ACC-ACT-LATE");
+        (await DecideAsync(client, caseId, new(DecisionOutcome.FalsePositive, Recommendation.NoAction, "analyst-1", null))).EnsureSuccessStatusCode();
+
+        // A racing decision that passed the status check before the first closed the Case gets this far.
+        using var scope = factory.Services.CreateScope();
+        var act = scope.ServiceProvider.GetRequiredService<IActStep>();
+        await Assert.ThrowsAsync<DecisionAlreadyRecordedException>(() =>
+            act.ActAsync(caseId, new(DecisionOutcome.ConfirmedFraud, Recommendation.BlockBankChanges, "analyst-2", null), Ct));
+
+        var @case = (await client.GetFromJsonAsync<CaseDetail>($"/cases/{caseId}", Json, Ct))!;
+        Assert.Equal("analyst-1", @case.Decision!.AnalystId);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync("/accounts/ACC-ACT-LATE/confirmed-fraud", Ct)).StatusCode);
     }
 
     private static async Task<AlertDetail?> NeighbourAlertAsync(HttpClient client)

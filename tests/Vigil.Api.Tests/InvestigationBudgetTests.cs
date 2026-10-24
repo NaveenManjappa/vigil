@@ -40,7 +40,14 @@ public sealed class InvestigationBudgetTests(ApiFactory factory) : IClassFixture
         Assert.False(first.NotInvestigated);
         Assert.Equal(CaseStatus.Open, second.Status);
     }
+}
 
+/// <summary>
+/// A stuck Investigation spends today's budget, so it gets its own containers rather than sharing a daily limit
+/// with the other budget tests.
+/// </summary>
+public sealed class StuckInvestigationBudgetTests(ApiFactory factory) : IClassFixture<ApiFactory>
+{
     [Fact]
     public async Task An_investigation_left_unfinished_is_not_run_again_once_the_daily_limit_is_spent()
     {
