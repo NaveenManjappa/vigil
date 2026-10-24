@@ -530,6 +530,7 @@ Vigil/
 ├─ docs/
 │  ├─ architecture.md
 │  ├─ adr/                        ← ADR-0001 … ADR-0016
+│  ├─ user-guide.md
 │  ├─ runbook.md
 │  ├─ industrialisation.md
 │  └─ handover.md
@@ -639,14 +640,23 @@ Each stage ends with a **"Done when"** checklist and a short **"Review questions
 ### Stage 5 — End-to-end validation and handover
 
 **Build**
-- Run Margaret's journey end to end from a clean start, following only `docs/runbook.md`.
+- Run Margaret's journey end to end from a clean start, following only `docs/user-guide.md`.
 - Run the paid steps once within budget: the Azure agent evaluation and the Scenario Generator. Replace the Fake-written placeholder in `datasets/generated/`, and commit the reports.
 - Run the Stand-in Analyst → `tune` flow against the AppHost and commit the Rule-Tuning Report.
 - A second engineer reviews each core module (`Vigil.Detection`, `Vigil.Graph`, `Vigil.Agents`) from the code and the docs alone.
 - Write `docs/handover.md`: known limits, open questions (Section 19) and operational ownership.
+- Write `docs/user-guide.md`: the single home for Azure setup, configuration, running and the end-to-end flow, in Simplified Technical English.
+
+> **Stage 5 decisions (grill session, 2026-10-24):**
+> - **The user guide** (`docs/user-guide.md`) is for engineers and operators new to Vigil. It owns setup, Azure OpenAI provisioning, every configuration setting, running, and the end-to-end flow, each step with its command, real output, and the config or code behind it.
+> - **The README** shrinks to a quick start. **The runbook** shrinks to reset, recovery and common failures. Both link into the guide, so no procedure is written twice.
+> - **Simplified Technical English (ASD-STE100):** at least 80% of the guide's prose sentences follow it. A sentence counts if it is at most 20 words when procedural or 25 when descriptive, and in the active voice; one instruction per step. `scripts/ste_check.py` checks the count.
+> - **The developer runs the paid Azure steps** (the agent evaluation and `generate-scenarios`), and the outputs are committed afterwards.
+> - **The free Stand-in Analyst → `tune` flow** is run against a local AppHost, and its report is committed.
+> - **Independent review:** an independent engineer's review of the core modules cannot be automated. `docs/handover.md` gives a reading guide for each core module instead, and that item stays for a person to tick.
 
 **Done when**
-- [ ] A new engineer can run every documented flow from the runbook alone.
+- [ ] A new engineer can run every documented flow from the user guide alone.
 - [ ] Agent evaluation and Rule-Tuning Reports from real runs are committed, and total LLM spend is within budget.
 - [ ] Each core module has been reviewed by an engineer who did not write it.
 
@@ -662,10 +672,11 @@ Anomaly score, Stardog/SPARQL + formal ontology, Application Insights, Azure Con
 |---|---|---|
 | `PROJECT.md` | This file | Now |
 | `CLAUDE.md` | Coding conventions, commands, `[HUMAN]` rules, stage gates | Stage 0 |
-| `README.md` | What it is, quick start, demo script | Stage 0, updated each stage |
+| `README.md` | What it is, quick start, links to the documents | Stage 0, updated each stage |
 | `docs/architecture.md` | Component diagram, data flow, sequence diagram of Margaret's case | Stage 1, extended each stage |
 | `docs/adr/ADR-0NN-*.md` | One per decision in 4.3: context, decision, alternatives, consequences | As decisions are made |
-| `docs/runbook.md` | How to run, reset data, run evals, common failures | Stage 4 |
+| `docs/runbook.md` | Reset data, recovery, common failures | Stage 4, slimmed in Stage 5 |
+| `docs/user-guide.md` | Azure setup, every setting, and operating Vigil from the first event to a rule change, in Simplified Technical English | Stage 5 |
 | `docs/industrialisation.md` | MVP → target state: Service Bus/Event Hubs, App Insights, Entra ID, Key Vault, Container Apps, anomaly models, Stardog | Stage 4 |
 | `docs/handover.md` | Known limits, open questions, operational ownership | Stage 5 |
 | `eval-reports/*.md` | Generated per evaluation run | Stage 1+ |
@@ -706,7 +717,7 @@ How the MVP covers what the engagement asks for. Status: ✅ covered · 🟡 par
 | | Data pipelines from source systems | 🟡 Canonical Portal Event and idempotent ingestion; sources simulated |
 | | Version control, CI/CD, testing, observability, cost and latency | 🟡 CI, Testcontainers, OpenTelemetry, token and £ metrics; CD parked |
 | | Security, privacy, model risk, audit | 🟡 Masking, append-only audit, mandatory human approval, versioning; no authentication yet |
-| | Documentation and handover | ✅ Architecture, runbook, industrialisation, ADRs, glossary |
+| | Documentation and handover | ✅ User guide, architecture, runbook, handover, industrialisation, ADRs, glossary |
 | Platform | Azure OpenAI / Foundry / Azure services | 🟡 Azure OpenAI; other Azure services on the industrialisation path |
 
 ---

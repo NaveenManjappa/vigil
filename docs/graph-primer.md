@@ -76,4 +76,4 @@ SHOW CONSTRAINTS
 
 ## Starting over
 
-The Projection is disposable: `MATCH (n) DETACH DELETE n` empties it (DETACH removes a node's relationships too), and the rebuild-graph command (see the README) projects it again from Postgres. The command deletes in chunks with `CALL (n) { DETACH DELETE n } IN TRANSACTIONS`, so a large graph is never held in one transaction.
+The Projection is disposable: `MATCH (n) DETACH DELETE n` empties it (DETACH removes a node's relationships too), and the rebuild-graph command (see the [runbook](runbook.md)) projects it again from Postgres. The command deletes in chunks with `CALL (n) { DETACH DELETE n } IN TRANSACTIONS`, so a large graph is never held in one transaction.
