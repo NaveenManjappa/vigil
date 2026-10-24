@@ -1,6 +1,13 @@
 # The LLM is one `IChatClient`, chosen by `Llm:Provider`
 
-Everything that talks to a model takes a `Microsoft.Extensions.AI` `IChatClient`, and the API registers exactly one, chosen by `Llm:Provider`: `Fake` or `AzureOpenAI`. Fake is the default when the setting is missing, and appsettings set it for Development, so tests, CI and the demo cost nothing and need no secret. The Fake plays a scripted Investigator (ADR-0007) and a Reviewer that approves (ADR-0006), and gives anything else a fixed reply. The agents never know which provider is behind the interface.
+Everything that talks to a model takes a `Microsoft.Extensions.AI` `IChatClient`, and each host registers exactly one, chosen by `Llm:Provider`: `Fake` or `AzureOpenAI`. The registration lives in `Vigil.Agents/Llm` (moved from the API in Stage 4), so the API and the evaluation command wire it the same way (ADR-0016). Fake is the default when the setting is missing, and appsettings set it for Development, so tests, CI and the demo cost nothing and need no secret. The Fake recognises each caller by the response schema it asks for:
+- **Investigator:** a scripted one (ADR-0007).
+- **Reviewer:** one that approves (ADR-0006).
+- **Evaluation-only Judge:** one that scores every criterion 3.
+- **Scenario Generator:** one fixed Scenario that evades a Window.
+- **Anything else:** a fixed reply.
+
+The agents never know which provider is behind the interface.
 
 Azure OpenAI is reached through its v1 endpoint (`https://<resource>.openai.azure.com/openai/v1/`) with the plain `OpenAI` SDK and `Microsoft.Extensions.AI.OpenAI`'s `AsIChatClient()`, with the deployment name as the model. `Azure.AI.OpenAI` is not used: its only stable release (2.1.0) is built against an old OpenAI SDK, and newer ones are betas, while Microsoft Learn now recommends the v1 endpoint for new code. The endpoint and deployment are ordinary config; the key comes only from the AppHost's `azure-openai-key` secret parameter, persisted to user-secrets and passed to the API as `Llm__ApiKey`, like `neo4j-password`. The parameter is generated so the AppHost starts while the provider is Fake; to use Azure, replace it with the real key.
 

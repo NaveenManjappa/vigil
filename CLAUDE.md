@@ -1,6 +1,6 @@
 # Vigil
 
-Interview-prep build of an account-takeover detection system. PROJECT.md is the spec and stage plan; GLOSSARY.md is the domain language (use its terms in code and docs); docs/adr/ records decisions.
+Account-takeover and registration-fraud detection for investor portals: rules first, AI agents second, a human decides. PROJECT.md is the spec and stage plan; GLOSSARY.md is the domain language (use its terms in code and docs); docs/adr/ records decisions.
 
 ## Working agreement
 
@@ -20,6 +20,8 @@ Interview-prep build of an account-takeover detection system. PROJECT.md is the 
 - `Directory.Packages.props` pins transitive packages; EF Core versions must stay aligned there or the API fails with CS1705.
 - Add migrations with `dotnet ef migrations add <Name> --project src/Vigil.Infrastructure --output-dir Migrations` (a design-time factory means no running database is needed).
 - API tests use Testcontainers, so Docker must be running.
+- Run the evaluation and simulator commands from the repo root: they read `config/`, `scenarios/`, `datasets/` and `src/Vigil.Api/appsettings.json` relative to it.
+- A Dataset file (`datasets/seed-*-holders-*.jsonl`) is reused if it exists; delete it after changing a Persona, or the evaluation scores the old one.
 - The Neo4j password is generated into the AppHost's user-secrets and baked into the `vigil-neo4j-data` volume on first start; if user-secrets are reset, delete that volume too.
 
 ## Agent skills
