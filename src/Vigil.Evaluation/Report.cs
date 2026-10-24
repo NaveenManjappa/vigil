@@ -26,7 +26,8 @@ public static class Report
 
     /// <param name="off">The same Dataset scored without Graph Rules.</param>
     /// <param name="on">The same Dataset scored with Graph Rules, from a time-ordered replay into Neo4j.</param>
-    public static string Render(EvaluationRun run, EvaluationResult off, EvaluationResult on)
+    /// <param name="agents">The Agent Sample's Investigations; null leaves the agent section out.</param>
+    public static string Render(EvaluationRun run, EvaluationResult off, EvaluationResult on, AgentEvaluation? agents = null)
     {
         var md = new StringBuilder();
         md.AppendLine("# Evaluation: graph off vs on");
@@ -37,6 +38,8 @@ public static class Report
         md.AppendLine($"| Seed | {run.Seed} |");
         md.AppendLine($"| Holders | {run.Holders} |");
         md.AppendLine($"| Rules Versions | {off.RulesVersion} (graph off), {on.RulesVersion} (graph on) |");
+        if (agents is not null)
+            AgentReport.AppendHeaderRows(md, agents);
         md.AppendLine($"| Dataset | `{run.DatasetPath}` |");
         md.AppendLine();
         md.AppendLine("An Account is **flagged** when any of its Alerts reached High or above at any point. With the graph on, the " +
@@ -94,6 +97,10 @@ public static class Report
             md.AppendLine($"| {p.Persona} | {(p.IsFraud ? "Fraud" : "Genuine")} | {p.Accounts} | {p.Flagged} / {p.Accounts} | " +
                 $"{onPersona.Flagged} / {onPersona.Accounts} | {PeakBands(p)} | {PeakBands(onPersona)} | {Expected[p.Persona]} |");
         }
+        md.AppendLine();
+
+        if (agents is not null)
+            AgentReport.AppendSection(md, run, agents);
 
         return md.ToString();
     }
@@ -101,7 +108,7 @@ public static class Report
     private static string PeakBands(PersonaOutcome p) =>
         string.Join(" / ", Enum.GetValues<RiskBand>().Select(b => p.PeakBands[b]));
 
-    private static string Cell(Rate rate) => $"{rate.Count} / {rate.Of} ({Percent(rate)})";
+    internal static string Cell(Rate rate) => $"{rate.Count} / {rate.Of} ({Percent(rate)})";
 
     // Invariant culture, so a report reads the same whatever machine generated it.
     private static string Percent(Rate rate) =>

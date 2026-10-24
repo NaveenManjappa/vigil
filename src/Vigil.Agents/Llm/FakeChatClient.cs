@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.AI;
 
-namespace Vigil.Api.Llm;
+namespace Vigil.Agents;
 
 /// <summary>
 /// The free provider for Development, tests and CI. When it is given the Investigator's tools it plays a scripted

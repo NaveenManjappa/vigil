@@ -97,6 +97,30 @@ public sealed class InvestigationLoopTests
     }
 
     [Fact]
+    public async Task Each_Finding_written_is_kept_as_an_Attempt_with_its_unknown_refs_and_the_Reviewers_answer()
+    {
+        var hallucinated = TakeoverFinding.Replace("\"E-3\"", "\"E-42\"");
+        var chat = new RecordingChatClient()
+            .Replies(hallucinated)
+            .Replies(TakeoverFinding).Replies(Reject("E-3 does not show a new device."));
+
+        var (_, outcome) = await RunAsync(chat);
+
+        Assert.Collection(outcome.Attempts,
+            first =>
+            {
+                Assert.Equal(["E-2", "E-42"], first.Finding.EvidenceRefs);
+                Assert.Equal(["E-42"], first.UnknownRefs);
+                Assert.Null(first.Approved);
+            },
+            second =>
+            {
+                Assert.Empty(second.UnknownRefs);
+                Assert.False(second.Approved);
+            });
+    }
+
+    [Fact]
     public async Task Two_Findings_failing_validation_are_flagged_and_the_Reviewer_is_never_called()
     {
         var hallucinated = TakeoverFinding.Replace("\"E-3\"", "\"E-42\"");
