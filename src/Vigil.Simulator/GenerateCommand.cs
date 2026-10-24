@@ -24,7 +24,7 @@ public static class GenerateCommand
         return path;
     }
 
-    private static string? Option(string[] args, string name)
+    internal static string? Option(string[] args, string name)
     {
         var i = Array.IndexOf(args, name);
         if (i < 0) return null;
