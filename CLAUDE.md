@@ -12,6 +12,8 @@ Account-takeover and registration-fraud detection for investor portals: rules fi
 - **Budget guard:** agent evaluation runs on a configured sample size, never the full dataset; log tokens per call.
 - **ADRs** keep PROJECT.md's numbering (`0010-...` for ADR-010) and are written when their stage makes the decision real, in the short format already in docs/adr/.
 - Write "Section 14", never the section symbol.
+- **One home for each procedure:** setting up, configuring and operating Vigil live only in `docs/user-guide.md`; reset, recovery and failure fixes live only in `docs/runbook.md`; the README keeps a quick start. Link instead of copying. Update the guide when a command or setting changes.
+- **The user guide is written in Simplified Technical English** (ASD-STE100): at most 20 words in a procedural sentence and 25 in a descriptive one, active voice, one instruction per step, no contractions. At least 80% of its prose sentences must pass `python3 scripts/ste_check.py docs/user-guide.md`.
 - Comments explain *why*, not *what*.
 
 ## Gotchas
