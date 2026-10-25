@@ -43,8 +43,8 @@ The agent metrics in the committed evaluation report come from the Fake provider
 
 | Item | Owner | How |
 |---|---|---|
-| Real agent evaluation (Azure, Agent Sample of 25) | Developer with the Azure key | [User guide 13.4](user-guide.md#134-run-the-evaluation-with-azure-openai) |
-| Real Scenario Generator run; replace the Fake placeholder in `datasets/generated/` | Developer with the Azure key | [User guide 13.5](user-guide.md#135-find-blind-spots-with-the-scenario-generator) |
+| Real agent evaluation (Azure, Agent Sample of 25) | Developer with the Azure key | [User guide 17](user-guide.md#17-run-the-evaluation-with-azure-openai) |
+| Real Scenario Generator run; replace the Fake placeholder in `datasets/generated/` | Developer with the Azure key | [User guide 18](user-guide.md#18-find-blind-spots-with-the-scenario-generator) |
 | Check total LLM spend against the £5–10 budget in the Azure cost view | Developer | [User guide 3.2](user-guide.md#32-set-a-budget-alert-before-you-spend-money) |
 | Review of each core module by an engineer who did not write it | Receiving engineer | [Reading the core modules](#reading-the-core-modules) below |
 | Decide whether to accept any Rule-Tuning suggestion | Fraud lead, with model risk | ADR-0012. The What-ifs say no: each one costs all early detection. |
@@ -65,7 +65,7 @@ The agent metrics in the committed evaluation report come from the Fake provider
 
 | What | Lives in | Suggested owner | Change process |
 |---|---|---|---|
-| Rules and weights | `config/rules.vN.json`, `Rules:Path` | Fraud lead | A new version file, compared by evaluation, approved by a person (ADR-0012, [user guide 15](user-guide.md#15-change-a-rule-safely)) |
+| Rules and weights | `config/rules.vN.json`, `Rules:Path` | Fraud lead | A new version file, compared by evaluation, approved by a person (ADR-0012, [user guide 20](user-guide.md#20-change-a-rule-safely)) |
 | Agent prompts | `config/prompts/*.vN.md` | AI engineer | A new version file, measured by the Azure evaluation before release; the file name is the Prompt Version |
 | LLM budget | `Investigation:DailyLimit`, `Llm:*Price*`, the Azure budget alert | Engineering lead | Settings change; check spend against the cost view monthly |
 | Evaluation and Rule-Tuning Reports | `eval-reports/` | Fraud lead and AI engineer | Run after every Rules or prompt change; commit the report with the change |
