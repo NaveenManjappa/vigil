@@ -5,6 +5,8 @@
 
 This document is the single source of truth for the project: what it is, why each decision was made, how it is built in stages, and how each stage is verified. It is written for **both** the engineering team (the design and its rationale) and **Claude Code** (build instructions).
 
+> **Since Stage 6 (2026-11-02)** the code is a cut-down demo you follow one event at a time: one agent called by hand, no evaluation, no masking. Sections 7 to 12 still describe the full design, which is tagged `v1-full`. For what runs today, read [ADR-0017](docs/adr/0017-simplify-to-a-walkable-demo.md) and [docs/architecture.md](docs/architecture.md).
+
 ---
 
 ## Table of contents
@@ -660,6 +662,25 @@ Each stage ends with a **"Done when"** checklist and a short **"Review questions
 - [ ] Agent evaluation and Rule-Tuning Reports from real runs are committed, and total LLM spend is within budget.
 - [ ] Each core module has been reviewed by an engineer who did not write it.
 
+### Stage 6 — Simplify to a walkable demo
+
+**Build**
+- Remove evaluation entirely: the evaluation console, the simulator, Datasets, Personas, Scenarios, the Judge, the Scenario Generator, the Stand-in Analyst and the Rule-Tuning Report. Tag the full version `v1-full` first.
+- `POST /events` takes one event and says what it changed; `GET /accounts/{id}` shows one Account in one place; `POST /reset` starts again.
+- `[HUMAN]` Detection asks one question per event; an Account has one open Alert; a Rule counts once in it.
+- `[HUMAN]` Neo4j kept: MERGE each event; G1 and G2 as one query each about the new event. No G3, no Neighbour re-scoring, no rebuild.
+- `[HUMAN]` One Investigator agent with three tools, run by `POST /cases/{id}/investigate`. No Reviewer, retry, validation, masking, workflow, checkpoints, queue or worker.
+- One migration; a Case is one row. The user guide is rebuilt around a twelve-step Scalar walkthrough, pinned by one API test.
+
+> **Stage 6 decisions (2026-11-02):** the developer found the full system too hard to follow and asked for one event per call, a pause to observe, and agent code a beginner can follow. Keep Neo4j (simplified), one agent, no masking (synthetic data; events cited by timeline number), investigation by explicit call. See ADR-0017, which supersedes ADR-0004, 0005, 0006, 0008, 0013, 0015 and 0016, and narrows 0007 and 0014. Sections 7 to 12 describe the full design, now tagged `v1-full`; where they differ from ADR-0017, the ADR wins.
+
+**Done when**
+- [ ] Every step of the user guide's walkthrough gives the response the guide shows, in Scalar, with the Fake model.
+- [ ] Step 10 with Azure OpenAI gives a real Finding citing the right event numbers, and logs its tokens.
+- [ ] The developer can explain `Detector`, `GraphRules` and `Investigator` without notes.
+
+**Review questions:** What does each event's response tell you? Why does a Rule count once per Alert? What happens inside `RunAsync<Finding>` when the model calls a tool?
+
 ### Parked (beyond the MVP)
 
 Anomaly score, Stardog/SPARQL + formal ontology, Application Insights, Azure Container Apps deployment, Angular analyst UI, Event Hubs ingestion, Entra ID, Key Vault. See Section 17.
@@ -675,11 +696,10 @@ Anomaly score, Stardog/SPARQL + formal ontology, Application Insights, Azure Con
 | `README.md` | What it is, quick start, links to the documents | Stage 0, updated each stage |
 | `docs/architecture.md` | Component diagram, data flow, sequence diagram of Margaret's case | Stage 1, extended each stage |
 | `docs/adr/ADR-0NN-*.md` | One per decision in 4.3: context, decision, alternatives, consequences | As decisions are made |
-| `docs/runbook.md` | Reset data, recovery, common failures | Stage 4, slimmed in Stage 5 |
-| `docs/user-guide.md` | Azure setup, every setting, and operating Vigil from the first event to a rule change, in Simplified Technical English | Stage 5 |
+| `docs/runbook.md` | Reset data, recovery, common failures | Stage 4, slimmed in Stages 5 and 6 |
+| `docs/user-guide.md` | Setup, the one-event-at-a-time walkthrough, Azure OpenAI and every setting, in Simplified Technical English | Stage 5, rebuilt in Stage 6 |
 | `docs/industrialisation.md` | MVP → target state: Service Bus/Event Hubs, App Insights, Entra ID, Key Vault, Container Apps, anomaly models, Stardog | Stage 4 |
 | `docs/handover.md` | Known limits, open questions, operational ownership | Stage 5 |
-| `eval-reports/*.md` | Generated per evaluation run | Stage 1+ |
 
 ADR template:
 

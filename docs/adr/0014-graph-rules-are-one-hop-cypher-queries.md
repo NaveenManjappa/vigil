@@ -1,5 +1,7 @@
 # Graph Rules are one-hop Cypher queries fed into the pure Detector
 
+> **Narrowed by [ADR-0017](0017-simplify-to-a-walkable-demo.md).** Graph Rules are still one-hop Cypher queries, but only G1 and G2 remain, each asks about the identifiers on the new event only, and their evidence is that event. G3 and Neighbour re-scoring are gone.
+
 A Graph Rule is one short Cypher query in `Vigil.Graph` that asks the Projection about one Account and returns candidate Rule Hits. G1 Shared bank account (+30) is the first: the Account PAYS_TO a BankAccount that an Account owned by a different Holder also PAYS_TO. The rules file still owns the Rule's points and explanation (ADR-0002); `kind: graph` tells the Detector the hit comes from outside, and `GraphRules` maps the Rule's Id to its query. Parsing rejects a graph rule with steps or a Window, and the API refuses to start if a graph rule has no query behind it. Graph Rules live in `rules.v2.json`, which is v1 unchanged plus the graph rules, so Alerts stamped v1 remain reproducible.
 
 `Detector.Detect` takes the candidate graph hits as an optional fourth argument and merges them with its sequence and first-sighting candidates, in trigger-time order, before Risk Episode assembly. The Detector stays pure: Vigil.Graph does the I/O, and everything ADR-0013 says (append-only Alerts, one hit per Rule per episode, a never-decreasing Score, late hits) applies to graph hits unchanged. The query returns one candidate per linked Account; the Detector keeps the first per episode.

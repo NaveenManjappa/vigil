@@ -12,13 +12,12 @@ public enum RuleKind
 }
 
 /// <summary>
-/// One detection pattern from the rules file. A sequence rule has two steps, A then B,
-/// and each step lists the event types that count as that step. A first-sighting rule has neither steps nor a Window,
-/// and neither has a graph rule, which is a query over links between Accounts that Vigil.Graph runs by the rule's Id.
+/// One detection pattern from the rules file. A sequence rule has two steps, A then B, and each step lists the event
+/// types that count as that step. A first-sighting rule and a graph rule have no steps and no Window.
 /// </summary>
 /// <param name="Explanation">
-/// Template; a sequence rule fills in {elapsed} and {window}, a first-sighting rule fills in {sighting},
-/// G1 fills in {bankAccount} and {account}, G2 fills in {identifier}, {value} and {account}, and G3 fills in {identifier}, {value}, {accounts} and {threshold}.
+/// Template: a sequence rule fills in {elapsed} and {window}, a first-sighting rule fills in {sighting}, G1 fills in
+/// {bankAccount} and {account}, and G2 fills in {identifier}, {value} and {account}.
 /// </param>
 public sealed record Rule(
     string Id,
@@ -30,9 +29,6 @@ public sealed record Rule(
     public IReadOnlyList<IReadOnlyList<EventType>> Steps { get; init; } = [];
 
     public int WindowMinutes { get; init; }
-
-    /// <summary>G3 only: how many Accounts must share one Linking Identifier before it counts as a Ring.</summary>
-    public int AccountThreshold { get; init; }
 
     [JsonIgnore]
     public TimeSpan Window => TimeSpan.FromMinutes(WindowMinutes);
@@ -49,10 +45,13 @@ public sealed record BandThresholds(int Medium, int High, int Critical)
 }
 
 /// <summary>
-/// Everything detection is configured by, loaded from a versioned JSON file (ADR-0002).
-/// The version is stamped on every Alert so an auditor knows which rules were in force.
+/// Everything detection is configured by, loaded from <c>config/rules.json</c> (ADR-0002). The version is stamped on
+/// every Alert so an auditor knows which rules were in force.
 /// </summary>
-public sealed record RuleSet(string Version, int RiskPeriodDays, BandThresholds Bands, IReadOnlyList<Rule> Rules)
+/// <param name="RiskPeriodDays">An Alert whose last hit is older than this, in event time, is closed and a new one starts.</param>
+/// <param name="OpenCaseAt">The band at which an Alert gets a Case, so an analyst and the agent look at it.</param>
+public sealed record RuleSet(
+    string Version, int RiskPeriodDays, BandThresholds Bands, RiskBand OpenCaseAt, IReadOnlyList<Rule> Rules)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -66,18 +65,12 @@ public sealed record RuleSet(string Version, int RiskPeriodDays, BandThresholds 
             ?? throw new InvalidDataException("Rules file is empty.");
 
         // Fail at startup, not on the first event that happens to reach a malformed rule.
-        foreach (var rule in rules.Rules)
+        foreach (var rule in rules.Rules.Where(r => r.Kind == RuleKind.Sequence))
         {
-            if (rule.Kind == RuleKind.Sequence && rule.Steps.Count != 2)
+            if (rule.Steps.Count != 2)
                 throw new InvalidDataException($"Rule {rule.Id}: a sequence rule needs exactly two steps.");
-
-            // Only sequence rules are checked: a first-sighting rule compares against history, so it has no steps or Window.
-            if (rule.Kind == RuleKind.Sequence && rule.WindowMinutes <= 0)
+            if (rule.WindowMinutes <= 0)
                 throw new InvalidDataException($"Rule {rule.Id}: a sequence rule needs a positive windowMinutes.");
-
-            // Steps or a Window on a graph rule would look configurable but be silently ignored.
-            if (rule.Kind == RuleKind.Graph && (rule.Steps.Count > 0 || rule.WindowMinutes != 0))
-                throw new InvalidDataException($"Rule {rule.Id}: a graph rule has no steps or windowMinutes.");
         }
 
         return rules;

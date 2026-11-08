@@ -1,125 +1,133 @@
+using System.Runtime.CompilerServices;
 using Microsoft.Extensions.AI;
+using Vigil.Domain.Detection;
+using Vigil.Domain.Events;
+using Vigil.Domain.Graph;
 
 namespace Vigil.Agents.Tests;
 
 public sealed class InvestigatorTests
 {
+    private static readonly DateTimeOffset Monday = new(2026, 9, 21, 9, 0, 0, TimeSpan.Zero);
+    private static readonly BandThresholds Bands = new(Medium: 30, High: 60, Critical: 90);
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
-    private readonly MargaretCase _source = new();
+    private static PortalEvent Event(EventType type, DateTimeOffset at, string device, string country) =>
+        new(Guid.NewGuid(), "ACC-MARGARET", "HOLDER-MARGARET", type, at, device, "198.51.100.77", country, "Web", new Dictionary<string, string>());
 
-    private const string TakeoverFinding = """
-        {"verdict":"LikelyAccountTakeover","confidence":"High","summary":"A new device took over the Account.",
-         "recommendation":"BlockBankChanges","evidence":["E-1","G-2"]}
-        """;
+    // Margaret's timeline: two usual logins (#1, #2), then a reset (#3) and MFA enrolment (#4) from a stranger's device.
+    private static readonly PortalEvent[] Timeline =
+    [
+        Event(EventType.LoginSucceeded, Monday.AddDays(-20), "D-LAPTOP", "GB"),
+        Event(EventType.LoginSucceeded, Monday.AddDays(-10), "D-LAPTOP", "GB"),
+        Event(EventType.PasswordReset, Monday, "D-77", "RO"),
+        Event(EventType.MfaEnrolled, Monday.AddMinutes(4), "D-77", "RO"),
+    ];
 
-    private static FunctionCallContent Tool(string callId, string name, Dictionary<string, object?>? arguments = null) =>
-        new(callId, name, arguments ?? []);
-
-    private async Task<(Enrichment Enrichment, InvestigatorResult Result)> InvestigateAsync(
-        RecordingChatClient chat, IReadOnlyList<string>? reviewerReasons = null)
+    private static Alert MargaretsAlert()
     {
-        var enrichment = await Enrichment.CreateAsync(MargaretCase.Alert, _source, Ct);
-        var result = await new Investigator(chat, _source).InvestigateAsync(enrichment, reviewerReasons ?? [], Ct);
-        return (enrichment, result);
+        var alert = new Alert("ACC-MARGARET", "v3");
+        alert.Add(
+        [
+            new RuleHit("R0", 10, [Timeline[2].EventId], Monday, "First sighting on this Account: new device D-77, new country RO"),
+            new RuleHit("R1", 30, [Timeline[2].EventId, Timeline[3].EventId], Monday.AddMinutes(4), "Password reset then MFA enrolment, 4 min apart; window 1h"),
+        ], Bands);
+        return alert;
     }
 
     [Fact]
-    public async Task The_Investigator_calls_a_tool_then_writes_a_Finding()
+    public async Task The_agent_calls_a_tool_then_returns_the_models_Finding()
     {
-        var chat = new RecordingChatClient()
-            .CallsTools(Tool("call-1", "QueryGraphNeighbourhood"))
-            .Replies(TakeoverFinding);
+        var model = new ScriptedChatClient(
+            new FunctionCallContent("call-1", "GetLinkedAccounts"),
+            """{"verdict":"LikelyAccountTakeover","confidence":"High","summary":"A stranger took over.","recommendation":"BlockBankChanges","events":[3,4]}""");
 
-        var (_, result) = await InvestigateAsync(chat);
+        var result = await new Investigator(model, new MargaretsData()).InvestigateAsync(MargaretsAlert(), Ct);
 
         var finding = result.Finding;
-        Assert.Equal(Verdict.LikelyAccountTakeover, finding.Verdict);
-        Assert.Equal(Confidence.High, finding.Confidence);
-        Assert.Equal("A new device took over the Account.", finding.Summary);
-        Assert.Equal(Recommendation.BlockBankChanges, finding.Recommendation);
-        Assert.Equal(["E-1", "G-2"], finding.EvidenceRefs);
-        // Tokens are summed over the tool loop: both round trips are billed.
-        Assert.Equal(300, result.InputTokens);
-        Assert.Equal(30, result.OutputTokens);
-    }
-
-    private static RecordingChatClient CallsEveryTool() => new RecordingChatClient()
-        .CallsTools(
-            Tool("timeline", "GetAccountTimeline", new() { ["days"] = 30 }),
-            Tool("graph", "QueryGraphNeighbourhood"),
-            Tool("baseline", "GetHolderBaseline"))
-        .Replies(TakeoverFinding);
-
-    [Fact]
-    public async Task Tool_results_reach_the_model_masked_and_tagged_with_Evidence_Refs()
-    {
-        var chat = CallsEveryTool();
-
-        var (enrichment, _) = await InvestigateAsync(chat);
-
-        var results = chat.ToolResults();
-        var refs = enrichment.Evidence.Refs;
-        string Pseudonym(string value) => enrichment.Evidence.Mask(value);
-
-        // The bank change was not cited by any Rule Hit, so the timeline gives it a new ref, which resolves to it.
-        var bankLine = Assert.Single(results["timeline"].Split('\n'), l => l.Contains("BankDetailsChanged"));
-        Assert.Equal([MargaretCase.Bank.EventId], refs.Resolve(bankLine.Split(' ')[0]));
-        Assert.Contains($"NewBankAccountHash={Pseudonym("BA-9f31")}", bankLine);
-
-        // D-77's graph fact stands for Margaret's link and each other Account's link to it.
-        var deviceLine = Assert.Single(results["graph"].Split('\n'), l => l.Contains(Pseudonym("D-77") + " "));
-        Assert.StartsWith("G-", deviceLine);
-        Assert.Equal([MargaretCase.Reset.EventId, MargaretCase.DerekReset, MargaretCase.PriyaReset.EventId], refs.Resolve(deviceLine.Split(' ')[0]));
-        Assert.Contains($"{Pseudonym("ACC-PRIYA")} (Confirmed Fraud)", deviceLine);
-
-        Assert.Contains($"Usual devices: {Pseudonym("D-MARGARET-LAPTOP")}", results["baseline"]);
+        Assert.Equal((Verdict.LikelyAccountTakeover, Confidence.High, Recommendation.BlockBankChanges),
+            (finding.Verdict, finding.Confidence, finding.Recommendation));
+        Assert.Equal("A stranger took over.", finding.Summary);
+        Assert.Equal([3, 4], finding.Events);
+        // The tool's answer went back to the model on its second call.
+        var toolResult = Assert.Single(model.Calls[1].SelectMany(m => m.Contents).OfType<FunctionResultContent>());
+        Assert.Equal("Device D-77 is also used by ACC-DEREK (Confirmed Fraud)", toolResult.Result?.ToString());
     }
 
     [Fact]
-    public async Task The_tools_are_bound_to_the_Cases_Account_and_take_no_account_argument()
+    public async Task The_brief_lists_each_Rule_Hit_and_the_flagged_events_by_their_timeline_number()
     {
-        var chat = new RecordingChatClient().Replies(TakeoverFinding);
+        var model = new ScriptedChatClient(
+            """{"verdict":"Inconclusive","confidence":"Low","summary":"Not sure.","recommendation":"ContactHolder","events":[]}""");
 
-        await InvestigateAsync(chat);
+        await new Investigator(model, new MargaretsData()).InvestigateAsync(MargaretsAlert(), Ct);
 
-        var tools = chat.Calls[0].Options!.Tools!.OfType<AIFunction>().ToList();
-        Assert.Equal(["GetAccountTimeline", "QueryGraphNeighbourhood", "GetHolderBaseline"], tools.Select(t => t.Name));
-        var parameters = tools.SelectMany(t => t.JsonSchema.GetProperty("properties").EnumerateObject().Select(p => p.Name));
-        Assert.Equal(["days"], parameters);
+        var brief = model.Calls[0].Last(m => m.Role == ChatRole.User).Text;
+        Assert.Contains("Investigate Account ACC-MARGARET. Alert Score 40, Risk Band Medium.", brief);
+        Assert.Contains("- R1 (+30): Password reset then MFA enrolment, 4 min apart; window 1h. Events: #3, #4", brief);
+        Assert.Contains("#3 2026-09-21 09:00 PasswordReset device D-77", brief);
+        Assert.DoesNotContain("#1 ", brief);
     }
 
     [Fact]
-    public async Task A_timeline_request_beyond_ninety_days_is_capped()
+    public async Task Usual_behaviour_comes_from_before_the_Alert_started()
     {
-        var chat = new RecordingChatClient()
-            .CallsTools(Tool("timeline", "GetAccountTimeline", new() { ["days"] = 400 }))
-            .Replies(TakeoverFinding);
+        var model = new ScriptedChatClient(
+            new FunctionCallContent("call-1", "GetUsualBehaviour"),
+            """{"verdict":"LikelyAccountTakeover","confidence":"High","summary":"x","recommendation":"BlockBankChanges","events":[3]}""");
 
-        await InvestigateAsync(chat);
+        await new Investigator(model, new MargaretsData()).InvestigateAsync(MargaretsAlert(), Ct);
 
-        Assert.Equal([90], _source.TimelineDaysAsked);
+        var toolResult = Assert.Single(model.Calls[1].SelectMany(m => m.Contents).OfType<FunctionResultContent>());
+        Assert.Equal("Before 2026-09-21 09:00: 2 events. Usual countries: GB. Usual devices: D-LAPTOP.", toolResult.Result?.ToString());
     }
 
     [Fact]
-    public async Task The_brief_gives_each_Rule_Hit_with_the_Evidence_Refs_of_its_events()
+    public async Task The_Fake_provider_calls_a_tool_and_cites_every_flagged_event()
     {
-        var chat = new RecordingChatClient().Replies(TakeoverFinding);
+        var result = await new Investigator(new FakeChatClient(), new MargaretsData()).InvestigateAsync(MargaretsAlert(), Ct);
 
-        var (enrichment, _) = await InvestigateAsync(chat);
-
-        var brief = chat.Calls[0].Messages.Single(m => m.Role == ChatRole.User).Text;
-        Assert.Contains("Score 105, Risk Band Critical", brief);
-        var r1 = Assert.Single(brief.Split('\n'), l => l.StartsWith("- R1 (+30)"));
-        var cited = r1[(r1.IndexOf("Evidence: ") + "Evidence: ".Length)..].Trim().Split(", ");
-        Assert.Equal([[MargaretCase.Reset.EventId], [MargaretCase.Mfa.EventId]], cited.Select(enrichment.Evidence.Refs.Resolve));
+        Assert.Equal(Verdict.LikelyAccountTakeover, result.Finding.Verdict);
+        Assert.Equal([3, 4], result.Finding.Events);
+        Assert.Equal(FakeChatClient.ModelId, result.Model);
     }
 
-    [Fact]
-    public async Task A_reply_that_is_not_a_Finding_fails_the_attempt()
+    private sealed class MargaretsData : IAccountData
     {
-        var chat = new RecordingChatClient().Replies("I think it is probably fraud.");
+        public Task<IReadOnlyList<PortalEvent>> GetTimelineAsync(string accountId, CancellationToken ct) =>
+            Task.FromResult<IReadOnlyList<PortalEvent>>(Timeline);
 
-        await Assert.ThrowsAnyAsync<System.Text.Json.JsonException>(() => InvestigateAsync(chat));
+        public Task<Neighbourhood> GetLinkedAccountsAsync(string accountId, CancellationToken ct) =>
+            Task.FromResult(new Neighbourhood(accountId, false, [new LinkedIdentifier("Device", "D-77", [new LinkedAccount("ACC-DEREK", true)])]));
+    }
+
+    /// <summary>Answers each call with the next scripted reply, and keeps the messages of every call.</summary>
+    private sealed class ScriptedChatClient(params object[] replies) : IChatClient
+    {
+        public List<List<ChatMessage>> Calls { get; } = [];
+
+        public Task<ChatResponse> GetResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
+        {
+            Calls.Add([.. messages]);
+            var reply = replies[Calls.Count - 1] switch
+            {
+                FunctionCallContent call => new ChatMessage(ChatRole.Assistant, [call]),
+                var text => new ChatMessage(ChatRole.Assistant, (string)text),
+            };
+            return Task.FromResult(new ChatResponse(reply));
+        }
+
+        public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
+            IEnumerable<ChatMessage> messages, ChatOptions? options = null,
+            [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            foreach (var update in (await GetResponseAsync(messages, options, cancellationToken)).ToChatResponseUpdates())
+                yield return update;
+        }
+
+        public object? GetService(Type serviceType, object? serviceKey = null) => null;
+
+        public void Dispose() { }
     }
 }

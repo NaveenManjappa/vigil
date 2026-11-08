@@ -4,18 +4,17 @@ using Vigil.Domain.Events;
 namespace Vigil.Detection;
 
 /// <summary>
-/// Asks of one event: does it complete this A → B rule? The event is B; A is the latest
-/// earlier event matching step A, and the hit counts only if A is inside the rule's Window.
+/// Asks of the new event: does it complete this A → B rule? The new event is B; A is the latest earlier event matching
+/// step A, and the hit counts only if A is inside the rule's Window.
 /// </summary>
 internal static class SequenceMatcher
 {
-    /// <param name="timeline">The Account's events, already in OccurredAt order.</param>
-    public static RuleHit? Match(Rule rule, IReadOnlyList<PortalEvent> timeline, int index)
+    /// <param name="earlier">The Account's events before the new one, in OccurredAt order.</param>
+    public static RuleHit? Match(Rule rule, PortalEvent b, IReadOnlyList<PortalEvent> earlier)
     {
-        var b = timeline[index];
         if (!rule.Steps[1].Contains(b.Type)) return null;
 
-        var a = timeline.Take(index).LastOrDefault(e => rule.Steps[0].Contains(e.Type));
+        var a = earlier.LastOrDefault(e => rule.Steps[0].Contains(e.Type));
         if (a is null) return null;
 
         var elapsed = b.OccurredAt - a.OccurredAt;

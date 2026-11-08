@@ -9,7 +9,7 @@ Account-takeover and registration-fraud detection for investor portals: rules fi
 - **[HUMAN] modules** (`Vigil.Detection`, `Vigil.Graph`, `Vigil.Agents`) must be explainable without notes: keep them small and readable, and after implementing, walk the developer through each class, the main flow and one tricky line.
 - **Tests first** for detection logic. Tests never call a real LLM; use a fake `IChatClient`.
 - **Verify Microsoft Agent Framework APIs** against Microsoft Learn before writing agent code; note any difference from PROJECT.md in the relevant ADR.
-- **Budget guard:** agent evaluation runs on a configured sample size, never the full dataset; log tokens per call.
+- **Budget guard:** the agent runs only when `POST /cases/{id}/investigate` is called, never automatically; log tokens per call.
 - **ADRs** keep PROJECT.md's numbering (`0010-...` for ADR-010) and are written when their stage makes the decision real, in the short format already in docs/adr/.
 - Write "Section 14", never the section symbol.
 - **One home for each procedure:** setting up, configuring and operating Vigil live only in `docs/user-guide.md`; reset, recovery and failure fixes live only in `docs/runbook.md`; the README keeps a quick start. Link instead of copying. Update the guide when a command or setting changes.
@@ -20,11 +20,11 @@ Account-takeover and registration-fraud detection for investor portals: rules fi
 
 - `global.json` opts `dotnet test` into Microsoft.Testing.Platform (required for xunit.v3 on the .NET 10 SDK).
 - `Directory.Packages.props` pins transitive packages; EF Core versions must stay aligned there or the API fails with CS1705.
-- Add migrations with `dotnet ef migrations add <Name> --project src/Vigil.Infrastructure --output-dir Migrations` (a design-time factory means no running database is needed).
+- Add migrations with `dotnet ef migrations add <Name> --project src/Vigil.Api --output-dir Data/Migrations` (a design-time factory means no running database is needed).
 - API tests use Testcontainers, so Docker must be running.
-- Run the evaluation and simulator commands from the repo root: they read `config/`, `scenarios/`, `datasets/` and `src/Vigil.Api/appsettings.json` relative to it.
-- A Dataset file (`datasets/seed-*-holders-*.jsonl`) is reused if it exists; delete it after changing a Persona, or the evaluation scores the old one.
 - The Neo4j password is generated into the AppHost's user-secrets and baked into the `vigil-neo4j-data` volume on first start; if user-secrets are reset, delete that volume too.
+- `WalkthroughTests` is the user guide's walkthrough: change the guide's request bodies or expected messages and that test together.
+- The full pre-simplification system is the `v1-full` tag (ADR-0017); look there before rebuilding anything `docs/industrialisation.md` lists.
 
 ## Agent skills
 

@@ -1,45 +1,69 @@
 using System.ComponentModel;
 using Microsoft.Extensions.AI;
+using Vigil.Domain.Events;
 
 namespace Vigil.Agents;
 
 /// <summary>
-/// The Investigator's three tools (ADR-0007). They are bound to the Case's Account and take no account argument, so
-/// the model cannot ask about another Holder. Every result is masked and every new fact gets an Evidence Ref.
+/// The three tools the Investigator may call. Each one is a plain C# method: its [Description] is what the model reads
+/// to decide when to call it, and its return value is the text the model gets back. The tools are bound to one
+/// Account and take no account argument, so the model cannot ask about another Holder.
 /// </summary>
-internal sealed class InvestigatorTools(Enrichment enrichment, IInvestigationSource source)
+internal sealed class InvestigatorTools(string accountId, DateTimeOffset alertStartedAt, IAccountData data)
 {
-    // Keeps a model that asks for "all of it" inside the token budget; three months covers any Risk Episode.
-    public const int MaxTimelineDays = 90;
-
-    public IList<AITool> AsAITools() =>
+    public IList<AITool> All() =>
     [
-        AIFunctionFactory.Create(GetAccountTimeline),
-        AIFunctionFactory.Create(QueryGraphNeighbourhood),
-        AIFunctionFactory.Create(GetHolderBaseline),
+        AIFunctionFactory.Create(GetTimeline),
+        AIFunctionFactory.Create(GetLinkedAccounts),
+        AIFunctionFactory.Create(GetUsualBehaviour),
     ];
 
-    [Description("The Account's events in the last `days` days up to its latest event, one per line, each with its Evidence Ref.")]
-    public async Task<string> GetAccountTimeline(
-        [Description("How many days back to look, from 1 to 90.")] int days, CancellationToken ct)
+    [Description("The Account's events in the last `days` days before its latest event, oldest first, one per line, each starting with its number.")]
+    public async Task<string> GetTimeline([Description("How many days back to look, from 1 to 90.")] int days, CancellationToken ct)
     {
-        days = Math.Clamp(days, 1, MaxTimelineDays);
-        var events = await source.GetTimelineAsync(enrichment.AccountId, days, ct);
-        return events.Count == 0
-            ? $"No events in the last {days} days."
-            : string.Join('\n', events.Select(enrichment.Evidence.Describe));
+        var timeline = await data.GetTimelineAsync(accountId, ct);
+        if (timeline.Count == 0) return "The Account has no events.";
+
+        var from = timeline[^1].OccurredAt.AddDays(-Math.Clamp(days, 1, 90));
+        var lines = timeline
+            .Select((e, i) => (Number: i + 1, Event: e))
+            .Where(x => x.Event.OccurredAt >= from)
+            .Select(x => Describe(x.Number, x.Event));
+        return string.Join('\n', lines);
     }
 
-    [Description("Each of the Account's Linking Identifiers and the other Accounts that use it, marking Confirmed Fraud ones, each with its Evidence Ref.")]
-    public async Task<string> QueryGraphNeighbourhood(CancellationToken ct)
+    [Description("Each device, email, phone and bank account the Account uses, and the other Accounts that use it too, marking Confirmed Fraud ones.")]
+    public async Task<string> GetLinkedAccounts(CancellationToken ct)
     {
-        var neighbourhood = await source.GetNeighbourhoodAsync(enrichment.AccountId, ct);
-        return neighbourhood.Identifiers.Count == 0
-            ? "The Account has no Linking Identifiers in the graph."
-            : string.Join('\n', neighbourhood.Identifiers.Select(enrichment.Evidence.Describe));
+        var neighbourhood = await data.GetLinkedAccountsAsync(accountId, ct);
+        if (neighbourhood.Identifiers.Count == 0) return "The Account has no devices, emails, phones or bank accounts in the graph.";
+
+        return string.Join('\n', neighbourhood.Identifiers.Select(identifier =>
+        {
+            var others = identifier.OtherAccounts.Select(o => o.IsConfirmedFraud ? $"{o.AccountId} (Confirmed Fraud)" : o.AccountId).ToList();
+            return others.Count == 0
+                ? $"{identifier.Kind} {identifier.Value} is used by no other Account"
+                : $"{identifier.Kind} {identifier.Value} is also used by {string.Join(", ", others)}";
+        }));
     }
 
-    [Description("The Holder's usual countries, devices and login frequency, from before the Alert's evidence began.")]
-    public async Task<string> GetHolderBaseline(CancellationToken ct) =>
-        enrichment.Evidence.Describe(await source.GetHolderBaselineAsync(enrichment.AccountId, enrichment.EvidenceFrom, ct));
+    [Description("The Holder's usual countries and devices, and how many events they had, from before the Alert started.")]
+    public async Task<string> GetUsualBehaviour(CancellationToken ct)
+    {
+        var usual = (await data.GetTimelineAsync(accountId, ct)).Where(e => e.OccurredAt < alertStartedAt).ToList();
+        if (usual.Count == 0) return "No events before the Alert started, so there is no usual behaviour to compare with.";
+
+        var countries = usual.Select(e => e.Country).OfType<string>().Distinct();
+        var devices = usual.Select(e => e.DeviceId).OfType<string>().Distinct();
+        return $"Before {alertStartedAt:yyyy-MM-dd HH:mm}: {usual.Count} events. " +
+               $"Usual countries: {string.Join(", ", countries)}. Usual devices: {string.Join(", ", devices)}.";
+    }
+
+    /// <summary>One event as the model reads it, e.g. <c>#3 2026-09-22 09:04 PasswordReset device D-77 country RO ...</c>.</summary>
+    public static string Describe(int number, PortalEvent e)
+    {
+        var attributes = string.Concat(e.Attributes.OrderBy(a => a.Key).Select(a => $" {a.Key}={a.Value}"));
+        return $"#{number} {e.OccurredAt.UtcDateTime:yyyy-MM-dd HH:mm} {e.Type} device {e.DeviceId ?? "none"} " +
+               $"ip {e.IpAddress ?? "none"} country {e.Country ?? "unknown"} channel {e.Channel}{attributes}";
+    }
 }

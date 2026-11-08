@@ -4,13 +4,15 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using OpenAI;
 using Vigil.Agents;
-using Vigil.Domain.Telemetry;
 
 // In the DI namespace, like the framework's own Add* extensions, so Program.cs needs no extra using.
 namespace Microsoft.Extensions.DependencyInjection;
 
 public static class LlmRegistration
 {
+    /// <summary>The trace source ServiceDefaults listens to.</summary>
+    public const string LlmSourceName = "Vigil.Llm";
+
     /// <summary>
     /// Registers the one <see cref="IChatClient"/> the agents use, chosen by <c>Llm:Provider</c> (ADR-0009). Bad
     /// settings throw here, at startup, rather than on the first Investigation hours later.
@@ -30,9 +32,8 @@ public static class LlmRegistration
 
         services.AddChatClient(client)
             .Use((inner, sp) => new TokenLoggingChatClient(inner, options, sp.GetRequiredService<ILogger<TokenLoggingChatClient>>()))
-            // Below the agents' function invoker, which finds this layer's ActivitySource and puts its execute_tool
-            // spans beside each chat span. Prompts stay out of the trace: they are masked, but would bloat it.
-            .UseOpenTelemetry(sourceName: VigilTelemetry.LlmSourceName, configure: c => c.EnableSensitiveData = false);
+            // Each call to the model, and each tool the agent runs, shows as a span in the Aspire dashboard's trace.
+            .UseOpenTelemetry(sourceName: LlmSourceName, configure: c => c.EnableSensitiveData = false);
         services.AddSingleton(options);
         return services;
     }

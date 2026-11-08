@@ -1,134 +1,116 @@
-using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Vigil.Agents;
+using Vigil.Api.Data;
 using Vigil.Domain.Cases;
-using Vigil.Domain.Detection;
-using Vigil.Domain.Telemetry;
-using Vigil.Infrastructure.Audit;
-using Vigil.Infrastructure.Cases;
+using Vigil.Graph;
 
 namespace Vigil.Api.Cases;
 
-public sealed record CaseSummary(
-    Guid Id,
-    Guid AlertId,
-    string AccountId,
-    CaseStatus Status,
-    RiskBand Band,
-    int Score,
-    DateTimeOffset OpenedAt,
-    bool NotInvestigated);
+/// <summary>The body of <c>POST /cases/{id}/decision</c>. The action may differ from the Finding's recommendation.</summary>
+public sealed record AnalystDecision(DecisionOutcome Outcome, Recommendation Action, string AnalystId, string? Notes);
 
-/// <summary>One cited Evidence Ref and the Portal Events behind it, so the analyst can check the claim.</summary>
-public sealed record ResolvedEvidenceRef(string Ref, IReadOnlyList<Guid> EventIds);
-
-/// <summary>The Finding as the analyst reads it: real identifiers in the summary, refs resolved to EventIds.</summary>
-public sealed record AnalystFinding(
-    Verdict Verdict, Confidence Confidence, string Summary, Recommendation Recommendation, IReadOnlyList<ResolvedEvidenceRef> EvidenceRefs);
-
-/// <summary>The Analyst Decision on a Case, once made.</summary>
-public sealed record DecisionView(DecisionOutcome Outcome, Recommendation Action, string AnalystId, string? Notes, DateTimeOffset DecidedAt);
-
-/// <summary>The Intervention the decision recorded for the portal; Until is set for BlockBankChanges only.</summary>
-public sealed record InterventionView(InterventionKind Kind, DateTimeOffset? Until, DateTimeOffset RecordedAt);
-
-public sealed record CaseDetail(
-    Guid Id,
-    Guid AlertId,
-    string AccountId,
-    CaseStatus Status,
-    RiskBand Band,
-    int Score,
-    DateTimeOffset OpenedAt,
-    bool NotInvestigated,
-    bool ReviewFlagged,
-    bool InvestigationFailed,
-    string? PromptVersion,
-    AnalystFinding? Finding,
-    DecisionView? Decision,
-    InterventionView? Intervention)
+/// <summary>How long a BlockBankChanges Intervention lasts, from the <c>Intervention</c> config section.</summary>
+public sealed class InterventionOptions
 {
-    public static CaseDetail From(StoredCase c) => new(
-        c.CaseId, c.AlertId, c.Alert.AccountId, c.Status, c.Alert.Band, c.Alert.Score, c.OpenedAt,
-        c.NotInvestigated, c.ReviewFlagged, c.InvestigationFailed, c.PromptVersion, Unmasked(c),
-        c.Decision is { } d
-            ? new DecisionView(Enum.Parse<DecisionOutcome>(d.Outcome), Enum.Parse<Recommendation>(d.Action), d.AnalystId, d.Notes, d.DecidedAt)
-            : null,
-        c.Intervention is { } i ? new InterventionView(i.Kind, i.Until, i.RecordedAt) : null);
-
-    // The only place a Finding is unmasked: it is stored in Pseudonyms and turned back only for the analyst (ADR-0008).
-    private static AnalystFinding? Unmasked(StoredCase c)
-    {
-        if (c.Finding is null) return null;
-
-        var finding = Agents.Finding.FromJson(c.Finding);
-        var masker = PseudonymMasker.FromMap(c.PseudonymMap ?? []);
-        return new AnalystFinding(
-            finding.Verdict, finding.Confidence, masker.Unmask(finding.Summary), finding.Recommendation,
-            [.. CaseAudit.Resolve(c, finding).Select(r => new ResolvedEvidenceRef(r.Ref, r.EventIds))]);
-    }
+    public int BlockBankChangesDays { get; init; } = 7;
 }
 
 public static class CaseEndpoints
 {
     public static IEndpointRouteBuilder MapCaseEndpoints(this IEndpointRouteBuilder app)
     {
-        app.MapGet("/cases", async (CaseStatus? status, CaseStore store, CancellationToken ct) =>
-                TypedResults.Ok((await store.QueueAsync(status, ct))
-                    .Select(c => new CaseSummary(c.CaseId, c.AlertId, c.Alert.AccountId, c.Status, c.Alert.Band, c.Alert.Score, c.OpenedAt, c.NotInvestigated))))
-            .WithSummary("The Case queue in priority order (Risk Band, then Score, then time opened), optionally filtered by status.");
+        app.MapGet("/cases", async (CaseStatus? status, VigilDbContext db, CancellationToken ct) =>
+            {
+                var cases = await db.Cases.AsNoTracking().Include(c => c.Alert)
+                    .Where(c => status == null || c.Status == status).ToListAsync(ct);
+                return cases.OrderByDescending(c => c.Alert.Band).ThenByDescending(c => c.Alert.Score).ThenBy(c => c.OpenedAt);
+            })
+            .WithTags("3. Cases")
+            .WithSummary("The Case queue, riskiest first, optionally filtered by status.");
 
-        app.MapGet("/cases/{id:guid}", async (Guid id, CaseStore store, CancellationToken ct) =>
-                await store.FindWithAlertAsync(id, ct) is { } @case
-                    ? Results.Ok(CaseDetail.From(@case))
-                    : Results.NotFound())
-            .WithSummary("One Case with its unmasked Finding, each cited Evidence Ref resolved to EventIds, and its decision and Intervention once made.");
+        app.MapGet("/cases/{id:guid}", async Task<IResult> (Guid id, VigilDbContext db, CancellationToken ct) =>
+                await FindAsync(db, id, ct) is { } @case ? TypedResults.Ok(@case) : TypedResults.NotFound())
+            .WithTags("3. Cases")
+            .WithSummary("One Case with its Alert, its Finding once investigated, and its decision once made.");
 
-        app.MapGet("/cases/{id:guid}/audit", async (Guid id, AuditStore audit, CancellationToken ct) =>
-                TypedResults.Ok((await audit.ForCaseAsync(id, ct)).Select(AuditEntryView.From)))
-            .WithSummary("The Case's Audit Entries in the order they were written.");
+        app.MapPost("/cases/{id:guid}/investigate", InvestigateAsync)
+            .WithTags("3. Cases")
+            .WithSummary("Run the Investigator agent on an Open Case. It returns the Case with its Finding and moves it to AwaitingDecision.");
 
         app.MapPost("/cases/{id:guid}/decision", DecideAsync)
-            .WithSummary("Records the analyst's decision on a Case awaiting approval, resuming its Investigation so Act runs.");
+            .WithTags("3. Cases")
+            .WithSummary("Record the analyst's decision on a Case that is AwaitingDecision. This closes the Case.");
 
         return app;
     }
 
-    private static async Task<IResult> DecideAsync(
-        Guid id, AnalystDecision decision, CaseStore store, InvestigationWorkflow workflow, CancellationToken ct)
+    private static async Task<IResult> InvestigateAsync(
+        Guid id, VigilDbContext db, Investigator investigator, TimeProvider clock, ILogger<Investigator> logger, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(decision.AnalystId))
-            return Results.ValidationProblem(new Dictionary<string, string[]> { ["analystId"] = ["A decision must name its analyst."] });
+        var @case = await FindAsync(db, id, ct);
+        if (@case is null) return TypedResults.NotFound();
+        if (@case.Status != CaseStatus.Open)
+            return TypedResults.Problem($"Case {id} is {@case.Status}; only an Open Case is investigated.", statusCode: StatusCodes.Status409Conflict);
 
-        var @case = await store.FindWithAlertAsync(id, ct);
-        if (@case is null) return Results.NotFound();
-        if (@case.Status != CaseStatus.AwaitingApproval)
-            return Results.Problem($"Case {id} is {@case.Status}; a decision is accepted only in AwaitingApproval.", statusCode: StatusCodes.Status409Conflict);
-
-        // Under this request's trace, not the Investigation's: an approval can wait for days, which would stretch that
-        // trace across them. The link still leads from the decision back to the Investigation it answers.
-        ActivityLink[] links = ActivityContext.TryParse(@case.InvestigationTrace, null, out var investigation) ? [new(investigation)] : [];
-        using var span = VigilTelemetry.Source.StartActivity("decide case", ActivityKind.Internal, parentContext: default, links: links);
-        span?.SetTag("vigil.case_id", id.ToString());
-
+        InvestigationResult result;
         try
         {
-            await workflow.DecideAsync(id, decision, ct);
+            result = await investigator.InvestigateAsync(@case.Alert, ct);
         }
-        catch (Exception e) when (Causes<DecisionAlreadyRecordedException>(e))
+        catch (Exception e) when (!ct.IsCancellationRequested)
         {
-            // Both decisions saw AwaitingApproval; the database let the other one in first.
-            return Results.Problem($"Case {id} was decided by another request; a Case takes one decision.", statusCode: StatusCodes.Status409Conflict);
+            // The Case stays Open, so calling investigate again retries it.
+            logger.LogError(e, "Investigation of Case {CaseId} failed", id);
+            return TypedResults.Problem($"The Investigator failed: {e.Message}. The Case is still Open; try again.", statusCode: StatusCodes.Status502BadGateway);
         }
 
-        // Read again: Act may have reloaded the Case under a cleared change tracker, leaving the instance above stale.
-        return Results.Ok(CaseDetail.From((await store.FindWithAlertAsync(id, ct))!));
+        @case.Finding = result.Finding;
+        @case.Model = result.Model;
+        @case.InputTokens = result.InputTokens;
+        @case.OutputTokens = result.OutputTokens;
+        @case.InvestigatedAt = clock.GetUtcNow();
+        @case.Status = CaseStatus.AwaitingDecision;
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(@case);
     }
 
-    // The workflow wraps what Act throws, so the cause is looked for down the chain.
-    private static bool Causes<T>(Exception? e) where T : Exception
+    private static async Task<IResult> DecideAsync(
+        Guid id, AnalystDecision decision, VigilDbContext db, GraphProjector graph,
+        IOptions<InterventionOptions> options, TimeProvider clock, CancellationToken ct)
     {
-        for (; e is not null; e = e.InnerException)
-            if (e is T) return true;
-        return false;
+        if (string.IsNullOrWhiteSpace(decision.AnalystId))
+            return TypedResults.ValidationProblem(new Dictionary<string, string[]> { ["analystId"] = ["A decision must name its analyst."] });
+
+        var @case = await FindAsync(db, id, ct);
+        if (@case is null) return TypedResults.NotFound();
+        if (@case.Status != CaseStatus.AwaitingDecision)
+            return TypedResults.Problem($"Case {id} is {@case.Status}; a decision is accepted only in AwaitingDecision.", statusCode: StatusCodes.Status409Conflict);
+
+        var now = clock.GetUtcNow();
+        @case.Outcome = decision.Outcome;
+        @case.Action = decision.Action;
+        @case.AnalystId = decision.AnalystId;
+        @case.Notes = decision.Notes;
+        @case.DecidedAt = now;
+        (@case.Intervention, @case.InterventionUntil) = decision.Action switch
+        {
+            Recommendation.BlockBankChanges => (InterventionKind.BlockBankChanges, now.AddDays(options.Value.BlockBankChangesDays)),
+            Recommendation.ContactHolder => (InterventionKind.ContactHolder, (DateTimeOffset?)null),
+            _ => ((InterventionKind?)null, (DateTimeOffset?)null),
+        };
+        @case.Status = CaseStatus.Closed;
+        // Closing the Case closes its Alert, so the Account's next Rule Hit starts a fresh Alert.
+        @case.Alert.IsOpen = false;
+
+        // G2 then hits any Account that later shares this one's device, email, phone or bank account.
+        if (decision.Outcome == DecisionOutcome.ConfirmedFraud)
+            await graph.MarkConfirmedFraudAsync(@case.AccountId, ct);
+
+        await db.SaveChangesAsync(ct);
+        return TypedResults.Ok(@case);
     }
+
+    private static Task<Case?> FindAsync(VigilDbContext db, Guid id, CancellationToken ct) =>
+        db.Cases.Include(c => c.Alert).SingleOrDefaultAsync(c => c.Id == id, ct);
 }

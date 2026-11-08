@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Vigil.Api\Vigil.Api.csproj" />
-    <ProjectReference Include="..\Vigil.Simulator\Vigil.Simulator.csproj" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,8 +1,10 @@
-using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace Vigil.Agents;
 
+// Each enum is written by name ("High", not 2), so the model sees readable choices and a stored Finding stays readable.
+
+[JsonConverter(typeof(JsonStringEnumConverter<Verdict>))]
 public enum Verdict
 {
     LikelyAccountTakeover,
@@ -11,6 +13,7 @@ public enum Verdict
     LikelyGenuine,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<Confidence>))]
 public enum Confidence
 {
     Low,
@@ -18,6 +21,7 @@ public enum Confidence
     High,
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter<Recommendation>))]
 public enum Recommendation
 {
     BlockBankChanges,
@@ -26,23 +30,12 @@ public enum Recommendation
 }
 
 /// <summary>
-/// The Investigator's written conclusion on a Case, as the model returns it: masked, citing Evidence Refs rather
-/// than EventIds. It only recommends; the analyst decides.
+/// The Investigator's written conclusion on a Case. It only recommends; the analyst decides.
 /// </summary>
-/// <param name="Summary">At most 120 words; checked in code before review, not trusted from the prompt.</param>
-/// <param name="EvidenceRefs">
-/// Written as <c>evidence</c>, the name the Investigator's prompt asks for and stored Findings already use.
-/// </param>
+/// <param name="Events">The numbers of the events the summary relies on, such as [3, 4], as shown in the Account's timeline.</param>
 public sealed record Finding(
     Verdict Verdict,
     Confidence Confidence,
     string Summary,
     Recommendation Recommendation,
-    [property: JsonPropertyName("evidence")] IReadOnlyList<string> EvidenceRefs)
-{
-    /// <summary>The Finding as stored with its Case: the shape the model writes, enums by name.</summary>
-    public string ToJson() => JsonSerializer.Serialize(this, ChatAgents.Json);
-
-    public static Finding FromJson(string json) =>
-        JsonSerializer.Deserialize<Finding>(json, ChatAgents.Json) ?? throw new JsonException("A stored Finding was null.");
-}
+    IReadOnlyList<int> Events);

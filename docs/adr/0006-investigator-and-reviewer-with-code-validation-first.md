@@ -1,5 +1,7 @@
 # Two agents, Investigator and Reviewer, with code validation before review
 
+> **Superseded by [ADR-0017](0017-simplify-to-a-walkable-demo.md).** Kept as a record of the full design, which is tagged `v1-full`.
+
 An Investigation uses two MAF `ChatClientAgent`s. The Investigator (`vigil-investigator`, `investigator.v1`) calls its tools and writes a Finding (ADR-0007). The Reviewer (`vigil-reviewer`, `Reviewer`, `reviewer.v1`) has no tools and answers `{ approved, reasons[] }`. Both Ids and names are constants, because MAF checkpoints and telemetry identify agents by them. The Reviewer is shown the Finding and, for each ref it cites, the exact masked line the Investigator was shown for that ref, which `MaskedEvidence` keeps as it writes them. It judges only what was cited, so it can neither look for support the Finding never gave nor be swamped by the whole Case.
 
 Before the Reviewer runs, code validates the Finding: every field inside the contract (the JSON converter accepts numbers for enums, and a missing property binds to null rather than failing to parse), a summary of at most 120 words, at least one cited ref, and every cited ref issued by this Investigation's Evidence Ref table. A failure counts as a rejection with reasons naming the problem, such as the unknown refs, and costs no Reviewer call. These checks are cheap and certain in code; a model asked to make them is neither.

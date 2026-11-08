@@ -1,5 +1,7 @@
 # Agents are evaluated in-process, on a seeded sample, by code first and a Judge second
 
+> **Superseded by [ADR-0017](0017-simplify-to-a-walkable-demo.md).** Kept as a record of the full design, which is tagged `v1-full`.
+
 Evaluation runs the same `InvestigationLoop` the API runs, inside the evaluation command, with an `IInvestigationSource` built from the in-memory Dataset and the throwaway Neo4j the graph replay already starts. No API, Postgres or Aspire is needed, so one command produces the whole report. The LLM wiring (provider switch, Fake, token logging) moves from the API into `Vigil.Agents` so both hosts register it the same way, and `--llm` chooses the provider for a run. Fake is the default, so the command is free; its agent numbers are marked as not meaningful.
 
 Only an Agent Sample is investigated: `AgentSampleSize` (20) Flagged Accounts drawn with a fixed seed across Personas, plus up to a quarter as many Near-misses, never more than a quarter of the final sample, so a run with few Flagged Accounts is not mostly Near-misses. Production never investigates a genuine Account below High, but without Near-misses the sample would hold almost no genuine Accounts, and nobody would learn whether the agents can say LikelyGenuine.

@@ -4,20 +4,16 @@ using Vigil.Domain.Events;
 namespace Vigil.Detection;
 
 /// <summary>
-/// Asks of one event: has the Account seen its device and country before? Only earlier events count as what
-/// the Account has seen. A new device and a new country on the same event are one hit, because they are one
-/// sighting of one stranger, not two separate signals.
+/// Asks of the new event: has the Account seen its device and country before? A new device and a new country on the
+/// same event are one hit, because they are one sighting of one stranger, not two separate signals.
 /// </summary>
 internal static class FirstSighting
 {
-    /// <param name="timeline">The Account's events, already in OccurredAt order.</param>
-    public static RuleHit? Match(Rule rule, IReadOnlyList<PortalEvent> timeline, int index)
+    /// <param name="earlier">The Account's events before the new one.</param>
+    public static RuleHit? Match(Rule rule, PortalEvent e, IReadOnlyList<PortalEvent> earlier)
     {
         // Everything is new on an Account's first event, so it says nothing about whether this one is unusual.
-        if (index == 0) return null;
-
-        var e = timeline[index];
-        var earlier = timeline.Take(index).ToList();
+        if (earlier.Count == 0) return null;
 
         List<string> sightings = [];
         if (e.DeviceId is not null && earlier.All(x => x.DeviceId != e.DeviceId)) sightings.Add($"new device {e.DeviceId}");

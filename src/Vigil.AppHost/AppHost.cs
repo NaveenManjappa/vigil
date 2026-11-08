@@ -25,14 +25,6 @@ var bolt = neo4j.GetEndpoint("bolt");
 // The endpoint's scheme is tcp, so the driver's bolt:// address is built from host and port.
 var boltUri = ReferenceExpression.Create($"bolt://{bolt.Property(EndpointProperty.HostAndPort)}");
 
-// The API and the rebuild-graph command both need both stores, wired the same way.
-IResourceBuilder<ProjectResource> WithStores(IResourceBuilder<ProjectResource> project) => project
-    .WithReference(db)
-    .WaitFor(db)
-    .WithEnvironment("Neo4j__Uri", boltUri)
-    .WithEnvironment("Neo4j__Password", neo4jPassword)
-    .WaitFor(neo4j);
-
 // Generated so the AppHost starts without prompting while Llm:Provider is Fake; to use Azure OpenAI, replace the
 // persisted value with the real key (user-secrets `Parameters:azure-openai-key`), so it never lands in source control.
 var azureOpenAiKey = builder.AddParameter(
@@ -41,20 +33,14 @@ var azureOpenAiKey = builder.AddParameter(
     secret: true,
     persist: true);
 
-var api = WithStores(builder.AddProject<Projects.Vigil_Api>("api"))
-    .WithEnvironment("Llm__ApiKey", azureOpenAiKey);
-
-// Explicit start, because a rebuild must only run with ingestion stopped (ADR-0015). It waits for the API, which
-// migrates the database, and has no launch profile, so it binds no ports beside the API.
-WithStores(builder.AddProject<Projects.Vigil_Api>("rebuild-graph", launchProfileName: null))
-    .WithArgs("rebuild-graph")
-    .WaitFor(api)
-    .WithExplicitStart();
-
-// Explicit start: the simulator replays scripted scenarios once, so it runs when you click Start in the dashboard.
-builder.AddProject<Projects.Vigil_Simulator>("simulator")
-    .WithReference(api)
-    .WaitFor(api)
-    .WithExplicitStart();
+builder.AddProject<Projects.Vigil_Api>("api")
+    .WithReference(db)
+    .WaitFor(db)
+    .WithEnvironment("Neo4j__Uri", boltUri)
+    .WithEnvironment("Neo4j__Password", neo4jPassword)
+    .WaitFor(neo4j)
+    .WithEnvironment("Llm__ApiKey", azureOpenAiKey)
+    // Opens Scalar from the dashboard's link, where the walkthrough happens.
+    .WithUrlForEndpoint("http", url => url.Url = "/scalar");
 
 builder.Build().Run();

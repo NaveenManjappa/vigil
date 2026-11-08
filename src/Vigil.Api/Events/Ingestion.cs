@@ -1,115 +1,81 @@
-using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
-using Vigil.Api.Cases;
+using Vigil.Api.Accounts;
+using Vigil.Api.Data;
 using Vigil.Detection;
 using Vigil.Domain.Detection;
 using Vigil.Domain.Events;
-using Vigil.Domain.Fraud;
-using Vigil.Domain.Telemetry;
 using Vigil.Graph;
-using Vigil.Infrastructure;
-using Vigil.Infrastructure.Alerts;
-using Vigil.Infrastructure.Events;
-using Vigil.Infrastructure.Fraud;
 
 namespace Vigil.Api.Events;
 
+/// <summary>What one event did, so you can see the change straight from the response.</summary>
+/// <param name="EventNumber">The event's position in the Account's timeline, the number the Investigator cites.</param>
+/// <param name="NewHits">The Rule Hits this event added to the Alert.</param>
+/// <param name="RepeatedRules">Rules this event matched that were already on the Alert, so they add no points.</param>
+/// <param name="CaseOpened">The Case this event opened, if it took the Alert to the Case band.</param>
+public sealed record IngestResult(
+    string Message, int EventNumber, IReadOnlyList<RuleHit> NewHits, IReadOnlyList<string> RepeatedRules, Alert? Alert, Guid? CaseOpened);
+
 /// <summary>
-/// Takes in what Vigil learns, a batch of Portal Events or a Confirmed Fraud, writes it to Postgres and the graph,
-/// and scores every Account it can change, in one transaction, so an Alert exists as soon as the request returns
-/// and a failure leaves nothing half-written. Cases it opens are queued for Investigation only once that
-/// transaction has committed, so a rolled-back batch never starts one.
+/// Takes in one Portal Event: stores it, copies it into the graph, runs the Rules, updates the Account's Alert and
+/// opens a Case if the Alert reached the Case band. This is a single-user demo, so there is no locking between requests.
 /// </summary>
-public sealed class Ingestion(
-    VigilDbContext db, EventStore events, AlertStore alerts, ConfirmedFraudStore frauds,
-    GraphProjector graph, GraphRules graphRules, RuleSet ruleSet, ICaseQueue caseQueue)
+public sealed class Ingestion(VigilDbContext db, AccountData accounts, GraphProjector graph, GraphRules graphRules, RuleSet rules, TimeProvider clock)
 {
-    public async Task<AppendResult> IngestAsync(IReadOnlyCollection<PortalEvent> batch, CancellationToken ct)
+    public async Task<IngestResult> IngestAsync(PortalEvent e, CancellationToken ct)
     {
-        // Sorted so concurrent batches touching the same Accounts take their locks in the same order and cannot deadlock.
-        var accounts = batch.Select(e => e.AccountId).Distinct().Order(StringComparer.Ordinal).ToList();
+        var history = await accounts.GetTimelineAsync(e.AccountId, ct);
+        var number = Timeline.Order([.. history.Where(x => x.EventId != e.EventId), e]).IndexOf(e) + 1;
 
-        return await InTransactionAsync(async opened =>
+        // The same EventId twice changes nothing, so a source can safely retry.
+        if (history.Any(x => x.EventId == e.EventId))
+            return new IngestResult($"Event #{number} was already ingested; nothing changed.", number, [], [], null, null);
+
+        // 1. Store the event and copy it into the graph.
+        db.Events.Add(StoredEvent.From(e));
+        await graph.ProjectAsync(e, ct);
+
+        // 2. Ask the Rules what this event triggered: the Account's own rules, then the graph rules.
+        var hits = Detector.Detect(e, history, rules)
+            .Concat(await graphRules.HitsForAsync(e, rules, ct))
+            .ToList();
+
+        // 3. Add the hits to the Account's open Alert. An Alert that went quiet is closed, and a new one starts.
+        var alert = await db.Alerts.SingleOrDefaultAsync(a => a.AccountId == e.AccountId && a.IsOpen, ct);
+        if (alert is not null && hits.Count > 0 && alert.HasGoneQuiet(e.OccurredAt, rules.RiskPeriodDays))
         {
-            foreach (var accountId in accounts) await db.LockAccountAsync(accountId, ct);
-
-            var result = await events.AppendAsync(batch, ct);
-
-            // Before the commit, so a Neo4j failure fails the request and the client's retry converges both stores.
-            // The whole batch is projected, not just the new events: MERGE makes re-projecting a duplicate a no-op.
-            await graph.ProjectAsync(batch, ct);
-
-            // A new link can give an Account outside the batch a Graph Rule Hit, such as the first Account on a shared
-            // bank account, so they are re-checked too. Their locks come after the batch's, so two batches that link
-            // to each other's Accounts can deadlock; Postgres aborts one and the execution strategy retries it (ADR-0015).
-            var neighbours = await graphRules.NeighboursOfAsync(batch, ct);
-            await ScoreAsync(batchAccounts: accounts, neighbours, opened, ct);
-            return result;
-        }, ct);
-    }
-
-    /// <summary>Idempotent: an Account already Confirmed Fraud keeps its first decision, which is returned.</summary>
-    /// <param name="first">
-    /// Runs inside the same transaction, before anything is recorded, so its writes commit or roll back with the
-    /// Confirmed Fraud; Act records the Analyst Decision this way. It may run more than once, as a retried attempt
-    /// starts again with a cleared change tracker.
-    /// </param>
-    public async Task<ConfirmedFraud> RecordConfirmedFraudAsync(ConfirmedFraud fraud, CancellationToken ct, Func<Task>? first = null) =>
-        await InTransactionAsync(async opened =>
-        {
-            // The Account's lock also serialises the Case MERGE, which no uniqueness constraint protects.
-            await db.LockAccountAsync(fraud.AccountId, ct);
-            if (first is not null) await first();
-            var recorded = await frauds.RecordAsync(fraud, ct);
-
-            // Projected even when already recorded, so a retry after a failed commit still reaches the graph.
-            await graph.ProjectConfirmedFraudAsync(recorded, ct);
-
-            // The decision changes no link and no score of its own, only its Neighbours' G2, so only they are scored.
-            var neighbours = await graphRules.NeighboursOfAccountAsync(fraud.AccountId, ct);
-            await ScoreAsync(batchAccounts: [], neighbours, opened, ct);
-            return recorded;
-        }, ct);
-
-    // Aspire's Npgsql integration retries transient failures, which requires the whole transaction to be replayable,
-    // so each attempt starts a fresh list of opened Cases and only the committed attempt's list is queued.
-    private async Task<T> InTransactionAsync<T>(Func<List<Guid>, Task<T>> work, CancellationToken ct)
-    {
-        List<Guid> opened = [];
-        var result = await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
-        {
-            db.ChangeTracker.Clear();
-            opened = [];
-            await using var tx = await db.Database.BeginTransactionAsync(ct);
-            var attempt = await work(opened);
-            await tx.CommitAsync(ct);
-            return attempt;
-        });
-
-        // Carries this request's trace, so the Investigation the worker runs later can join it.
-        var openedIn = Activity.Current?.Context ?? default;
-        foreach (var caseId in opened) await caseQueue.EnqueueAsync(new QueuedCase(caseId, openedIn), ct);
-        return result;
-    }
-
-    // The batch's Accounts are locked by the caller before anything is written; neighbours are only known once the
-    // graph is projected, so their locks are taken here, after the batch's (ADR-0015).
-    private async Task ScoreAsync(
-        IReadOnlyList<string> batchAccounts, IReadOnlyList<string> neighbours, List<Guid> opened, CancellationToken ct)
-    {
-        foreach (var accountId in neighbours) await db.LockAccountAsync(accountId, ct);
-
-        foreach (var accountId in batchAccounts.Concat(neighbours))
-        {
-            // Here rather than in the Detector, which stays a pure function that evaluation calls thousands of times.
-            using var span = VigilTelemetry.Source.StartActivity("detect");
-            span?.SetTag("vigil.account_id", accountId);
-
-            var timeline = await events.GetTimelineAsync(accountId, ct);
-            var graphHits = await graphRules.HitsForAsync(accountId, ruleSet, ct);
-            var newCases = await alerts.SaveAsync(accountId, stored => Detector.Detect(timeline, ruleSet, stored, graphHits), ct);
-            span?.SetTag("vigil.cases_opened", newCases.Count);
-            opened.AddRange(newCases);
+            alert.IsOpen = false;
+            alert = null;
         }
+        if (alert is null && hits.Count > 0)
+        {
+            alert = new Alert(e.AccountId, rules.Version);
+            db.Alerts.Add(alert);
+        }
+        var newHits = alert?.Add(hits, rules.Bands) ?? [];
+        var repeated = hits.Select(h => h.RuleId).Except(newHits.Select(h => h.RuleId)).ToList();
+
+        // 4. Open a Case the first time the Alert reaches the Case band.
+        Case? opened = null;
+        if (alert is not null && alert.Band >= rules.OpenCaseAt && !await db.Cases.AnyAsync(c => c.AlertId == alert.Id, ct))
+        {
+            opened = new Case { AccountId = e.AccountId, Alert = alert, AlertId = alert.Id, OpenedAt = clock.GetUtcNow() };
+            db.Cases.Add(opened);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return new IngestResult(Describe(number, newHits, repeated, alert, opened), number, newHits, repeated, alert, opened?.Id);
+    }
+
+    // One line that says what changed, e.g. "Event #6 added R1 (+30). Alert: Score 65, High. Case 3f2a... opened."
+    private static string Describe(int number, IReadOnlyList<RuleHit> newHits, List<string> repeated, Alert? alert, Case? opened)
+    {
+        var message = newHits.Count > 0
+            ? $"Event #{number} added {string.Join(", ", newHits.Select(h => $"{h.RuleId} (+{h.Points})"))}."
+            : $"Event #{number} added no Rule Hits.";
+        if (repeated.Count > 0) message += $" {string.Join(", ", repeated)} matched again but already counts on the Alert.";
+        if (alert is not null) message += $" Alert: Score {alert.Score}, {alert.Band}.";
+        if (opened is not null) message += $" Case {opened.Id} opened.";
+        return message;
     }
 }

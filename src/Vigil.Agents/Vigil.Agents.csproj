@@ -6,14 +6,13 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Agents.AI" />
-    <PackageReference Include="Microsoft.Agents.AI.Workflows" />
     <PackageReference Include="Microsoft.Extensions.AI" />
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Binder" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The file name is the Prompt Version, so the resource is named after it. -->
+    <!-- Embedded, so the prompt cannot go missing at runtime. -->
     <EmbeddedResource Include="..\..\config\prompts\*.md" LogicalName="prompts.%(Filename)%(Extension)" />
   </ItemGroup>
 

@@ -7,11 +7,10 @@ public sealed class DetectorTests
 {
     private const string Account = "ACC-1";
     private static readonly DateTimeOffset Monday = new(2026, 9, 21, 9, 0, 0, TimeSpan.Zero);
-    private static readonly RuleSet Rules = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.v1.json"));
-    private static readonly RuleSet RulesV2 = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.v2.json"));
+    private static readonly RuleSet Rules = RuleSet.Load(Path.Combine(AppContext.BaseDirectory, "config", "rules.json"));
 
-    private static PortalEvent Event(EventType type, DateTimeOffset at) =>
-        new(Guid.NewGuid(), Account, "HOLDER-1", type, at, "D-1", "198.51.100.1", "GB", "web", new Dictionary<string, string>());
+    private static PortalEvent Event(EventType type, DateTimeOffset at, string device = "D-1", string country = "GB") =>
+        new(Guid.NewGuid(), Account, "HOLDER-1", type, at, device, "198.51.100.1", country, "Web", new Dictionary<string, string>());
 
     [Fact]
     public void Password_reset_then_MFA_enrolment_within_an_hour_is_a_recovery_takeover()
@@ -19,14 +18,8 @@ public sealed class DetectorTests
         var reset = Event(EventType.PasswordReset, Monday);
         var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
 
-        var alert = Assert.Single(Detector.Detect([reset, mfa], Rules));
+        var hit = Assert.Single(Detector.Detect(mfa, [reset], Rules));
 
-        Assert.Equal(Account, alert.AccountId);
-        Assert.Equal(30, alert.Score);
-        Assert.Equal(RiskBand.Medium, alert.Band);
-        Assert.Equal("v1", alert.RulesVersion);
-
-        var hit = Assert.Single(alert.Hits);
         Assert.Equal("R1", hit.RuleId);
         Assert.Equal(30, hit.Points);
         Assert.Equal([reset.EventId, mfa.EventId], hit.EvidenceEventIds);
@@ -35,19 +28,32 @@ public sealed class DetectorTests
     }
 
     [Fact]
-    public void MFA_enrolment_more_than_an_hour_after_the_reset_raises_no_alert()
+    public void MFA_enrolment_more_than_an_hour_after_the_reset_hits_nothing()
     {
-        var timeline = new[] { Event(EventType.PasswordReset, Monday), Event(EventType.MfaEnrolled, Monday.AddMinutes(61)) };
+        var reset = Event(EventType.PasswordReset, Monday);
+        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(61));
 
-        Assert.Empty(Detector.Detect(timeline, Rules));
+        Assert.Empty(Detector.Detect(mfa, [reset], Rules));
     }
 
     [Fact]
-    public void MFA_enrolment_before_the_reset_is_not_a_recovery_takeover()
+    public void Only_the_event_being_detected_can_complete_a_sequence()
     {
-        var timeline = new[] { Event(EventType.MfaEnrolled, Monday), Event(EventType.PasswordReset, Monday.AddMinutes(4)) };
+        // The reset is the first step, not the second, so this event completes nothing.
+        var mfa = Event(EventType.MfaEnrolled, Monday);
+        var reset = Event(EventType.PasswordReset, Monday.AddMinutes(4));
 
-        Assert.Empty(Detector.Detect(timeline, Rules));
+        Assert.Empty(Detector.Detect(reset, [mfa], Rules));
+    }
+
+    [Fact]
+    public void Events_that_happened_later_are_ignored_even_if_they_arrived_first()
+    {
+        // The reset happened after the MFA enrolment, so it cannot be its first step.
+        var mfa = Event(EventType.MfaEnrolled, Monday);
+        var laterReset = Event(EventType.PasswordReset, Monday.AddMinutes(4));
+
+        Assert.Empty(Detector.Detect(mfa, [laterReset], Rules));
     }
 
     // One row per alternative in each step, so every listed event type is shown to count.
@@ -68,7 +74,7 @@ public sealed class DetectorTests
         var a = Event(stepA, Monday);
         var b = Event(stepB, Monday.AddMinutes(minutesApart));
 
-        var hit = Assert.Single(Assert.Single(Detector.Detect([a, b], Rules)).Hits);
+        var hit = Assert.Single(Detector.Detect(b, [a], Rules));
 
         Assert.Equal(ruleId, hit.RuleId);
         Assert.Equal(points, hit.Points);
@@ -76,523 +82,43 @@ public sealed class DetectorTests
         Assert.Equal(explanation, hit.Explanation);
     }
 
-    public static TheoryData<string, EventType, EventType, int> EveryRule => new()
-    {
-        { "R1", EventType.PasswordReset, EventType.MfaEnrolled, 60 },
-        { "R2", EventType.PasswordReset, EventType.PhoneChanged, 24 * 60 },
-        { "R3", EventType.AddressChanged, EventType.BankDetailsChanged, 72 * 60 },
-        { "R4", EventType.BankDetailsChanged, EventType.TransferRequested, 7 * 24 * 60 },
-        { "R5", EventType.AccountRegistered, EventType.BankDetailsChanged, 48 * 60 },
-        { "R6", EventType.AccountRegistered, EventType.SaleRequested, 14 * 24 * 60 },
-    };
-
-    [Theory]
-    [MemberData(nameof(EveryRule))]
-    public void A_second_step_exactly_on_the_window_boundary_hits(string ruleId, EventType stepA, EventType stepB, int windowMinutes)
-    {
-        var timeline = new[] { Event(stepA, Monday), Event(stepB, Monday.AddMinutes(windowMinutes)) };
-
-        var hit = Assert.Single(Assert.Single(Detector.Detect(timeline, Rules)).Hits);
-        Assert.Equal(ruleId, hit.RuleId);
-    }
-
-    [Theory]
-    [MemberData(nameof(EveryRule))]
-    public void A_second_step_one_second_past_the_window_does_not_hit(string _, EventType stepA, EventType stepB, int windowMinutes)
-    {
-        var timeline = new[] { Event(stepA, Monday), Event(stepB, Monday.AddMinutes(windowMinutes).AddSeconds(1)) };
-
-        Assert.Empty(Detector.Detect(timeline, Rules));
-    }
-
-    [Theory]
-    [MemberData(nameof(EveryRule))]
-    public void Steps_in_the_wrong_order_do_not_hit(string _, EventType stepA, EventType stepB, int windowMinutes)
-    {
-        var timeline = new[] { Event(stepB, Monday), Event(stepA, Monday.AddMinutes(windowMinutes / 2)) };
-
-        Assert.Empty(Detector.Detect(timeline, Rules));
-    }
-
     [Fact]
-    public void Step_A_is_the_latest_matching_event_before_step_B()
+    public void A_new_device_and_a_new_country_on_one_event_are_one_first_sighting()
     {
-        var oldReset = Event(EventType.PasswordReset, Monday);
-        var reset = Event(EventType.PasswordReset, Monday.AddHours(3));
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddHours(3).AddMinutes(20));
+        var usual = Event(EventType.LoginSucceeded, Monday);
+        var stranger = Event(EventType.LoginSucceeded, Monday.AddDays(1), device: "D-77", country: "RO");
 
-        var hit = Assert.Single(Assert.Single(Detector.Detect([oldReset, reset, mfa], Rules)).Hits);
-
-        Assert.Equal([reset.EventId, mfa.EventId], hit.EvidenceEventIds);
-    }
-
-    [Fact]
-    public void Events_are_paired_by_when_they_happened_not_by_arrival_order()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-
-        // The MFA enrolment reached Vigil first; the source delayed the reset.
-        var hit = Assert.Single(Assert.Single(Detector.Detect([mfa, reset], Rules)).Hits);
-
-        Assert.Equal("R1", hit.RuleId);
-        Assert.Equal([reset.EventId, mfa.EventId], hit.EvidenceEventIds);
-    }
-
-    [Fact]
-    public void Events_at_the_same_instant_give_the_same_alert_whatever_order_they_arrive_in()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday);
-
-        var forwards = Detector.Detect([reset, mfa], Rules);
-        var backwards = Detector.Detect([mfa, reset], Rules);
-
-        Assert.Equal(forwards.Count, backwards.Count);
-        Assert.Equal(forwards.SelectMany(a => a.Hits), backwards.SelectMany(a => a.Hits), RuleHitComparer.Instance);
-    }
-
-    [Fact]
-    public void A_duplicated_event_has_no_effect()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-
-        var once = Assert.Single(Detector.Detect([reset, mfa], Rules));
-        var twice = Assert.Single(Detector.Detect([reset, mfa, reset, mfa], Rules));
-
-        Assert.Equal(once.Score, twice.Score);
-        Assert.Equal(once.Hits, twice.Hits, RuleHitComparer.Instance);
-    }
-
-    [Fact]
-    public void A_rule_that_fires_repeatedly_counts_once_and_keeps_its_first_evidence()
-    {
-        var firstReset = Event(EventType.PasswordReset, Monday);
-        var firstMfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var secondReset = Event(EventType.PasswordReset, Monday.AddHours(5));
-        var secondMfa = Event(EventType.MfaEnrolled, Monday.AddHours(5).AddMinutes(2));
-
-        var alert = Assert.Single(Detector.Detect([firstReset, firstMfa, secondReset, secondMfa], Rules));
-
-        Assert.Equal(30, alert.Score);
-        var hit = Assert.Single(alert.Hits);
-        Assert.Equal([firstReset.EventId, firstMfa.EventId], hit.EvidenceEventIds);
-    }
-
-    [Fact]
-    public void Hits_from_different_rules_add_up_to_one_alert()
-    {
-        // Margaret's takeover: reset, new MFA, new email, new bank details, then a sale.
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
-        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(1));
-        var sale = Event(EventType.SaleRequested, Monday.AddDays(2));
-
-        var alert = Assert.Single(Detector.Detect([reset, mfa, email, bank, sale], Rules));
-
-        Assert.Equal(["R1", "R2", "R3", "R4"], alert.Hits.Select(h => h.RuleId));
-        Assert.Equal(120, alert.Score);
-        Assert.Equal(RiskBand.Critical, alert.Band);
-        Assert.Equal([email.EventId, bank.EventId], alert.Hits.Single(h => h.RuleId == "R3").EvidenceEventIds);
-    }
-
-    [Fact]
-    public void A_resent_event_with_different_details_is_ignored_like_the_event_store_ignores_it()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddHours(2));
-
-        // Same EventId, but now claiming the reset was ten minutes before the MFA enrolment.
-        var resent = reset with { OccurredAt = Monday.AddHours(2).AddMinutes(-10) };
-
-        Assert.Empty(Detector.Detect([reset, mfa, resent], Rules));
-    }
-
-    [Fact]
-    public void A_hit_more_than_the_risk_period_after_the_previous_one_opens_a_new_alert()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
-        var bank = Event(EventType.BankDetailsChanged, Monday.AddMinutes(4).AddDays(7).AddSeconds(1));
-        var sale = Event(EventType.SaleRequested, bank.OccurredAt.AddHours(1));
-
-        // R3 (email → bank) cannot hit: its 72h window has passed, so the next hit is R4 at the sale.
-        var alerts = Detector.Detect([reset, mfa, email, bank, sale], Rules);
-
-        Assert.Collection(alerts,
-            first => Assert.Equal(["R1", "R2"], first.Hits.Select(h => h.RuleId)),
-            second =>
-            {
-                Assert.Equal(["R4"], second.Hits.Select(h => h.RuleId));
-                Assert.Equal(40, second.Score);
-                Assert.Equal(RiskBand.Medium, second.Band);
-            });
-    }
-
-    [Fact]
-    public void A_hit_exactly_the_risk_period_after_the_previous_one_joins_its_alert()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(6));
-        var sale = Event(EventType.SaleRequested, Monday.AddMinutes(4).AddDays(7));
-
-        var alert = Assert.Single(Detector.Detect([reset, mfa, bank, sale], Rules));
-
-        Assert.Equal(["R1", "R4"], alert.Hits.Select(h => h.RuleId));
-        Assert.Equal(70, alert.Score);
-    }
-
-    [Fact]
-    public void An_episode_longer_than_the_risk_period_keeps_its_score()
-    {
-        // Each hit is within 7 days of the one before, so the episode runs 12 days and nothing decays.
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var email = Event(EventType.EmailChanged, Monday.AddDays(5));
-        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(6));
-        var sale = Event(EventType.SaleRequested, Monday.AddDays(12));
-
-        var alert = Assert.Single(Detector.Detect([reset, mfa, email, bank, sale], Rules));
-
-        Assert.Equal(["R1", "R3", "R4"], alert.Hits.Select(h => h.RuleId));
-        Assert.Equal(100, alert.Score);
-        Assert.Equal(RiskBand.Critical, alert.Band);
-    }
-
-    [Fact]
-    public void A_rule_counts_once_per_episode_and_again_in_a_new_one()
-    {
-        var firstReset = Event(EventType.PasswordReset, Monday);
-        var firstMfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var secondReset = Event(EventType.PasswordReset, Monday.AddDays(10));
-        var secondMfa = Event(EventType.MfaEnrolled, Monday.AddDays(10).AddMinutes(2));
-
-        var alerts = Detector.Detect([firstReset, firstMfa, secondReset, secondMfa], Rules);
-
-        Assert.Collection(alerts,
-            a => Assert.Equal([firstReset.EventId, firstMfa.EventId], Assert.Single(a.Hits).EvidenceEventIds),
-            a => Assert.Equal([secondReset.EventId, secondMfa.EventId], Assert.Single(a.Hits).EvidenceEventIds));
-    }
-
-    [Fact]
-    public void Replaying_a_timeline_in_any_arrival_order_gives_identical_alerts()
-    {
-        PortalEvent[] timeline =
-        [
-            Event(EventType.PasswordReset, Monday),
-            Event(EventType.MfaEnrolled, Monday.AddMinutes(4)),
-            Event(EventType.EmailChanged, Monday.AddMinutes(10)),
-            Event(EventType.BankDetailsChanged, Monday.AddDays(1)),
-            Event(EventType.PasswordReset, Monday.AddDays(20)),
-            Event(EventType.MfaEnrolled, Monday.AddDays(20).AddMinutes(30)),
-            Event(EventType.PhoneChanged, Monday.AddDays(20).AddHours(2)),
-        ];
-        var expected = Detector.Detect(timeline, Rules);
-
-        var random = new Random(13);
-        for (var run = 0; run < 20; run++)
-        {
-            var shuffled = timeline.ToArray();
-            random.Shuffle(shuffled);
-
-            var actual = Detector.Detect(shuffled, Rules);
-
-            Assert.Equal(expected.Count, actual.Count);
-            foreach (var (e, a) in expected.Zip(actual))
-            {
-                Assert.Equal(e.Score, a.Score);
-                Assert.Equal(e.Hits, a.Hits, RuleHitComparer.Instance);
-            }
-        }
-
-        Assert.Equal(2, expected.Count);
-    }
-
-    [Fact]
-    public void A_late_event_that_would_be_an_earlier_hit_for_an_already_hit_rule_changes_nothing()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(20));
-        var stored = Detector.Detect([reset, mfa], Rules);
-
-        // Enrolled five minutes after the reset, but delayed at the source.
-        var lateMfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(5));
-        var alert = Assert.Single(Detector.Detect([reset, mfa, lateMfa], Rules, stored));
-
-        var hit = Assert.Single(alert.Hits);
-        Assert.Equal([reset.EventId, mfa.EventId], hit.EvidenceEventIds);
-        Assert.Equal(30, alert.Score);
-    }
-
-    [Fact]
-    public void Detecting_again_over_the_same_timeline_leaves_stored_alerts_unchanged()
-    {
-        PortalEvent[] timeline =
-        [
-            Event(EventType.PasswordReset, Monday),
-            Event(EventType.MfaEnrolled, Monday.AddMinutes(4)),
-            Event(EventType.BankDetailsChanged, Monday.AddDays(6)),
-            Event(EventType.SaleRequested, Monday.AddDays(20)),
-            Event(EventType.PasswordReset, Monday.AddDays(20)),
-            Event(EventType.MfaEnrolled, Monday.AddDays(20).AddMinutes(1)),
-        ];
-        var stored = Detector.Detect(timeline, Rules);
-
-        var again = Detector.Detect(timeline, Rules, stored);
-
-        Assert.Equal(stored.Count, again.Count);
-        foreach (var (s, a) in stored.Zip(again)) Assert.Equal(s.Hits, a.Hits, RuleHitComparer.Instance);
-    }
-
-    [Fact]
-    public void A_late_hit_for_a_new_rule_is_appended_after_the_stored_hits()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(20));
-        var stored = Detector.Detect([reset, mfa], Rules);
-
-        var lateEmail = Event(EventType.EmailChanged, Monday.AddMinutes(10));
-        var alert = Assert.Single(Detector.Detect([reset, mfa, lateEmail], Rules, stored));
-
-        Assert.Equal(["R1", "R2"], alert.Hits.Select(h => h.RuleId));
-        Assert.Equal(50, alert.Score);
-    }
-
-    [Fact]
-    public void A_late_hit_just_before_a_stored_episode_joins_it_rather_than_opening_another()
-    {
-        // Over 24h after the reset below, so R2 (reset → contact change) stays out of it.
-        var email = Event(EventType.EmailChanged, Monday.AddDays(1).AddHours(1));
-        var bank = Event(EventType.BankDetailsChanged, Monday.AddDays(1).AddHours(2));
-        var stored = Detector.Detect([email, bank], Rules);
-
-        // The reset and MFA enrolment happened the day before but reached Vigil after the bank change.
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var alert = Assert.Single(Detector.Detect([email, bank, reset, mfa], Rules, stored));
-
-        Assert.Equal(["R3", "R1"], alert.Hits.Select(h => h.RuleId));
-        Assert.Equal(60, alert.Score);
-        Assert.Equal(RiskBand.High, alert.Band);
-    }
-
-    [Fact]
-    public void A_stored_alert_keeps_the_rules_version_that_opened_it()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var stored = Detector.Detect([reset, mfa], Rules with { Version = "v0" });
-
-        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
-        var alert = Assert.Single(Detector.Detect([reset, mfa, email], Rules, stored));
-
-        Assert.Equal("v0", alert.RulesVersion);
-    }
-
-    private static PortalEvent Login(DateTimeOffset at, string device, string country) =>
-        Event(EventType.LoginSucceeded, at) with { DeviceId = device, Country = country };
-
-    [Fact]
-    public void An_accounts_first_event_is_no_first_sighting_because_there_is_no_baseline_to_compare_against()
-    {
-        Assert.Empty(Detector.Detect([Login(Monday, "D-77", "RO")], Rules));
-    }
-
-    [Fact]
-    public void An_event_from_a_device_not_seen_before_on_the_account_is_a_first_sighting()
-    {
-        var usual = Login(Monday, "D-1", "GB");
-        var reset = Event(EventType.PasswordReset, Monday.AddDays(30)) with { DeviceId = "D-77" };
-
-        var hit = Assert.Single(Assert.Single(Detector.Detect([usual, reset], Rules)).Hits);
+        var hit = Assert.Single(Detector.Detect(stranger, [usual], Rules));
 
         Assert.Equal("R0", hit.RuleId);
-        Assert.Equal(10, hit.Points);
-        Assert.Equal([reset.EventId], hit.EvidenceEventIds);
-        Assert.Equal(reset.OccurredAt, hit.TriggeredAt);
-        Assert.Equal("First sighting on this Account: new device D-77", hit.Explanation);
-    }
-
-    [Fact]
-    public void An_event_from_a_country_not_seen_before_on_the_account_is_a_first_sighting()
-    {
-        // The Holder's own laptop, taken abroad.
-        var usual = Login(Monday, "D-1", "GB");
-        var abroad = Login(Monday.AddDays(30), "D-1", "FR");
-
-        var hit = Assert.Single(Assert.Single(Detector.Detect([usual, abroad], Rules)).Hits);
-
-        Assert.Equal("R0", hit.RuleId);
-        Assert.Equal([abroad.EventId], hit.EvidenceEventIds);
-        Assert.Equal("First sighting on this Account: new country FR", hit.Explanation);
-    }
-
-    [Fact]
-    public void A_new_device_and_a_new_country_on_the_same_event_are_one_first_sighting()
-    {
-        var usual = Login(Monday, "D-1", "GB");
-        var stranger = Login(Monday.AddDays(30), "D-77", "RO");
-
-        var alert = Assert.Single(Detector.Detect([usual, stranger], Rules));
-
-        var hit = Assert.Single(alert.Hits);
-        Assert.Equal(10, alert.Score);
         Assert.Equal([stranger.EventId], hit.EvidenceEventIds);
         Assert.Equal("First sighting on this Account: new device D-77, new country RO", hit.Explanation);
     }
 
-    /// <summary>A G1 hit as Vigil.Graph would hand it over: a bank account shared with another Holder's Account.</summary>
-    private static RuleHit SharedBankAccount(DateTimeOffset at, string otherAccount = "ACC-2") =>
-        new("G1", 30, [Guid.NewGuid(), Guid.NewGuid()], at, $"Pays out to bank account BA-9f31, which {otherAccount} of a different Holder also pays out to");
-
     [Fact]
-    public void A_graph_hit_joins_the_risk_episode_of_the_accounts_own_hits()
+    public void An_Accounts_first_event_is_never_a_first_sighting()
     {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var g1 = SharedBankAccount(Monday.AddDays(2));
+        var first = Event(EventType.LoginSucceeded, Monday, device: "D-77", country: "RO");
 
-        var alert = Assert.Single(Detector.Detect([reset, mfa], RulesV2, graphHits: [g1]));
-
-        // R1 30 + G1 30 = 60.
-        Assert.Equal(["R1", "G1"], alert.Hits.Select(h => h.RuleId));
-        Assert.Equal(60, alert.Score);
-        Assert.Equal(RiskBand.High, alert.Band);
-        Assert.Equal("v2", alert.RulesVersion);
-        Assert.Same(g1, alert.Hits[1]);
+        Assert.Empty(Detector.Detect(first, [], Rules));
     }
 
     [Fact]
-    public void A_graph_hit_takes_its_place_in_trigger_order_among_the_accounts_own_hits()
+    public void A_usual_device_and_country_hit_nothing()
     {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var email = Event(EventType.EmailChanged, Monday.AddHours(3));
+        var usual = Event(EventType.LoginSucceeded, Monday);
+        var again = Event(EventType.LoginSucceeded, Monday.AddDays(1));
 
-        var alert = Assert.Single(Detector.Detect([reset, mfa, email], RulesV2, graphHits: [SharedBankAccount(Monday.AddHours(1))]));
-
-        Assert.Equal(["R1", "G1", "R2"], alert.Hits.Select(h => h.RuleId));
+        Assert.Empty(Detector.Detect(again, [usual], Rules));
     }
 
     [Fact]
-    public void A_graph_hit_more_than_the_risk_period_after_the_last_hit_opens_a_new_alert()
+    public void Graph_rules_are_left_to_Vigil_Graph()
     {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
+        // A bank change after an email change hits R3 only: G1 and G2 need the graph, which the Detector cannot see.
+        var email = Event(EventType.EmailChanged, Monday);
+        var bank = Event(EventType.BankDetailsChanged, Monday.AddHours(1));
 
-        var alerts = Detector.Detect([reset, mfa], RulesV2, graphHits: [SharedBankAccount(Monday.AddDays(10))]);
-
-        Assert.Collection(alerts,
-            first => Assert.Equal(["R1"], first.Hits.Select(h => h.RuleId)),
-            second =>
-            {
-                Assert.Equal(["G1"], second.Hits.Select(h => h.RuleId));
-                Assert.Equal(30, second.Score);
-                Assert.Equal(RiskBand.Medium, second.Band);
-            });
-    }
-
-    [Fact]
-    public void A_graph_rule_counts_once_per_episode_and_keeps_its_first_hit()
-    {
-        // Two other Holders' Accounts pay to the same bank account: two candidates, one Rule.
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var first = SharedBankAccount(Monday.AddDays(1), "ACC-2");
-        var second = SharedBankAccount(Monday.AddDays(2), "ACC-3");
-
-        var alert = Assert.Single(Detector.Detect([reset, mfa], RulesV2, graphHits: [second, first]));
-
-        Assert.Equal(60, alert.Score);
-        Assert.Same(first, Assert.Single(alert.Hits, h => h.RuleId == "G1"));
-    }
-
-    [Fact]
-    public void A_graph_hit_is_appended_to_a_stored_alert_and_never_lowers_its_score()
-    {
-        var reset = Event(EventType.PasswordReset, Monday);
-        var mfa = Event(EventType.MfaEnrolled, Monday.AddMinutes(4));
-        var email = Event(EventType.EmailChanged, Monday.AddMinutes(10));
-        var stored = Detector.Detect([reset, mfa, email], Rules);
-
-        // A G1 that triggered before R2 still goes after the stored hits, which are never reordered.
-        var extended = Assert.Single(Detector.Detect([reset, mfa, email], RulesV2, stored, [SharedBankAccount(Monday.AddMinutes(5))]));
-
-        Assert.Equal(["R1", "R2", "G1"], extended.Hits.Select(h => h.RuleId));
-        Assert.Equal(stored[0].Hits, extended.Hits.Take(2), RuleHitComparer.Instance);
-        Assert.Equal(80, extended.Score);
-        Assert.Equal("v1", extended.RulesVersion);
-
-        // The graph no longer reporting the link removes nothing.
-        var again = Assert.Single(Detector.Detect([reset, mfa, email], RulesV2, [extended], graphHits: []));
-        Assert.Equal(extended.Hits, again.Hits, RuleHitComparer.Instance);
-        Assert.Equal(80, again.Score);
-    }
-
-    // RuleHit holds its evidence in a list, which records compare by reference.
-    private sealed class RuleHitComparer : IEqualityComparer<RuleHit>
-    {
-        public static readonly RuleHitComparer Instance = new();
-
-        public bool Equals(RuleHit? x, RuleHit? y) =>
-            x is not null && y is not null
-            && (x.RuleId, x.Points, x.TriggeredAt, x.Explanation) == (y.RuleId, y.Points, y.TriggeredAt, y.Explanation)
-            && x.EvidenceEventIds.SequenceEqual(y.EvidenceEventIds);
-
-        public int GetHashCode(RuleHit hit) => hit.RuleId.GetHashCode();
-    }
-
-    [Theory]
-    [InlineData(0, RiskBand.Low)]
-    [InlineData(29, RiskBand.Low)]
-    [InlineData(30, RiskBand.Medium)]
-    [InlineData(59, RiskBand.Medium)]
-    [InlineData(60, RiskBand.High)]
-    [InlineData(89, RiskBand.High)]
-    [InlineData(90, RiskBand.Critical)]
-    public void Band_thresholds_come_from_the_rules_file(int score, RiskBand expected) =>
-        Assert.Equal(expected, Rules.Bands.BandFor(score));
-
-    [Fact]
-    public void A_sequence_rule_without_a_window_fails_to_load()
-    {
-        const string json = """
-            { "version": "v1", "riskPeriodDays": 7, "bands": { "medium": 30, "high": 60, "critical": 90 },
-              "rules": [{ "id": "R1", "name": "Recovery takeover", "kind": "sequence",
-                          "steps": [["PasswordReset"], ["MfaEnrolled"]], "points": 30, "explanation": "x" }] }
-            """;
-
-        Assert.Throws<InvalidDataException>(() => RuleSet.Parse(json));
-    }
-
-    [Fact]
-    public void A_graph_rule_with_steps_fails_to_load()
-    {
-        const string json = """
-            { "version": "v2", "riskPeriodDays": 7, "bands": { "medium": 30, "high": 60, "critical": 90 },
-              "rules": [{ "id": "G1", "name": "Shared bank account", "kind": "graph",
-                          "steps": [["BankDetailsChanged"], ["BankDetailsChanged"]], "points": 30, "explanation": "x" }] }
-            """;
-
-        Assert.Throws<InvalidDataException>(() => RuleSet.Parse(json));
-    }
-
-    [Fact]
-    public void Rules_v2_is_v1_unchanged_plus_the_graph_rules()
-    {
-        // v1 stays as it was, so Alerts stamped v1 can still be reproduced.
-        Assert.Equal("v2", RulesV2.Version);
-        Assert.Equal((Rules.RiskPeriodDays, Rules.Bands), (RulesV2.RiskPeriodDays, RulesV2.Bands));
-        Assert.Equal(
-            Rules.Rules.Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)),
-            RulesV2.Rules.Where(r => r.Kind != RuleKind.Graph).Select(r => (r.Id, r.Kind, r.Points, r.WindowMinutes, r.Explanation)));
-
-        Assert.Equal(
-            [("G1", 30, 0), ("G2", 25, 0), ("G3", 20, 3)],
-            RulesV2.Rules.Where(r => r.Kind == RuleKind.Graph).Select(r => (r.Id, r.Points, r.AccountThreshold)));
+        Assert.Equal(["R3"], Detector.Detect(bank, [email], Rules).Select(h => h.RuleId));
     }
 }

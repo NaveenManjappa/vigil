@@ -18,13 +18,8 @@ public static class Extensions
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
 
-    // Vigil's own source and meter, and the names the chat client and agents are given (VigilTelemetry in
-    // Vigil.Domain). Explicit names rather than MAF's Experimental.* defaults, so a framework rename cannot silently
-    // drop the agent spans from the trace.
-    private static readonly string[] VigilSources = ["Vigil", "Vigil.Llm", "Vigil.Agents"];
-
-    // The workflow spans: MAF's own source name; workflows publish no metrics.
-    private const string WorkflowSource = "Microsoft.Agents.AI.Workflows";
+    // The name the chat client is given in LlmRegistration, so each model call and tool call shows in the trace.
+    private static readonly string[] VigilSources = ["Vigil.Llm"];
 
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
     {
@@ -72,7 +67,6 @@ public static class Extensions
             {
                 tracing.AddSource(builder.Environment.ApplicationName)
                     .AddSource(VigilSources)
-                    .AddSource(WorkflowSource)
                     .AddAspNetCoreInstrumentation(tracing =>
                         // Exclude health check requests from tracing
                         tracing.Filter = context =>

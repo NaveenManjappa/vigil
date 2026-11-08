@@ -7,20 +7,23 @@
   <ItemGroup>
     <ProjectReference Include="..\Vigil.ServiceDefaults\Vigil.ServiceDefaults.csproj" />
     <ProjectReference Include="..\Vigil.Domain\Vigil.Domain.csproj" />
-    <ProjectReference Include="..\Vigil.Infrastructure\Vigil.Infrastructure.csproj" />
     <ProjectReference Include="..\Vigil.Detection\Vigil.Detection.csproj" />
     <ProjectReference Include="..\Vigil.Graph\Vigil.Graph.csproj" />
     <ProjectReference Include="..\Vigil.Agents\Vigil.Agents.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\config\rules.v2.json" Link="config\rules.v2.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\config\rules.json" Link="config\rules.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Aspire.Npgsql.EntityFrameworkCore.PostgreSQL" />
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
     <PackageReference Include="Scalar.AspNetCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
   </ItemGroup>
 
 </Project>

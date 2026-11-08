@@ -1,62 +1,66 @@
-using System.Text.Json;
+using System.Text;
 using Microsoft.Agents.AI;
 using Microsoft.Extensions.AI;
+using Vigil.Domain.Detection;
+using Vigil.Domain.Events;
 
 namespace Vigil.Agents;
 
-/// <param name="InputTokens">Summed over every round trip of the tool loop, which is what is billed.</param>
-/// <param name="Model">The model that answered, for the Audit Entry; null if the provider does not say.</param>
-public sealed record InvestigatorResult(Finding Finding, long InputTokens, long OutputTokens, string? Model = null);
+/// <summary>What one Investigation produced, with the tokens it cost.</summary>
+public sealed record InvestigationResult(Finding Finding, string? Model, long InputTokens, long OutputTokens);
 
 /// <summary>
-/// The Investigator agent: given a Case's Enrichment it calls its tools as it sees fit and writes a Finding. One call
-/// is one attempt; the workflow decides whether to retry with the Reviewer's reasons.
+/// The Investigator agent. It reads a Case's Alert, calls its tools as it sees fit and writes a Finding.
 /// </summary>
-public sealed class Investigator
+public sealed class Investigator(IChatClient chat, IAccountData data)
 {
-    // Stable on purpose: MAF checkpoints and telemetry identify the agent by them, so renaming one strands every
-    // Case already waiting in AwaitingApproval.
-    public const string AgentId = "vigil-investigator";
-    public const string AgentName = "Investigator";
-    public const string PromptVersion = "investigator.v1";
-
-    private readonly AIAgent _agent;
-    private readonly IInvestigationSource _source;
-    private readonly IChatClient _chat;
-
-    public Investigator(IChatClient chat, IInvestigationSource source)
+    public async Task<InvestigationResult> InvestigateAsync(Alert alert, CancellationToken ct)
     {
-        _source = source;
-        _chat = chat;
-        _agent = ChatAgents.Create(chat, AgentId, AgentName, PromptVersion);
+        // 1. Read the Account's events, so the brief can show the ones the Rules flagged, by number.
+        var timeline = await data.GetTimelineAsync(alert.AccountId, ct);
+
+        // 2. Build the agent: a chat model, standing instructions and three tools it may call.
+        var tools = new InvestigatorTools(alert.AccountId, alert.Hits.Min(h => h.TriggeredAt), data);
+        AIAgent agent = chat.AsAIAgent(name: "Investigator", instructions: Instructions, tools: tools.All());
+
+        // 3. Run it. RunAsync<Finding> asks the model for JSON in the Finding's shape and parses the reply.
+        //    Behind this one call, the agent may call tools and send their results back to the model several times.
+        var response = await agent.RunAsync<Finding>(Brief(alert, timeline), cancellationToken: ct);
+
+        var model = chat.GetService<ChatClientMetadata>()?.DefaultModelId;
+        return new InvestigationResult(response.Result, model, response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0);
     }
 
-    /// <summary>
-    /// Runs one attempt. An LLM failure or a reply that is not a Finding throws (<see cref="JsonException"/> for the
-    /// latter), for the workflow to turn into InvestigationFailed.
-    /// </summary>
-    public async Task<InvestigatorResult> InvestigateAsync(
-        Enrichment enrichment, IReadOnlyList<string> reviewerReasons, CancellationToken ct)
+    /// <summary>The first message: the Alert's Rule Hits and the events behind them.</summary>
+    private static string Brief(Alert alert, IReadOnlyList<PortalEvent> timeline)
     {
-        // Tools are given per run, not to the agent, because each Investigation binds them to its own Account.
-        var tools = new InvestigatorTools(enrichment, _source);
-        var options = new ChatClientAgentRunOptions(new ChatOptions { Tools = tools.AsAITools() });
+        var numberOf = timeline.Select((e, i) => (e.EventId, Number: i + 1)).ToDictionary(x => x.EventId, x => x.Number);
 
-        var response = await _agent.RunAsync<Finding>(
-            Message(enrichment, reviewerReasons), serializerOptions: ChatAgents.Json, options: options, cancellationToken: ct);
+        var brief = new StringBuilder()
+            .AppendLine($"Investigate Account {alert.AccountId}. Alert Score {alert.Score}, Risk Band {alert.Band}.")
+            .AppendLine()
+            .AppendLine("Rule Hits:");
+        foreach (var hit in alert.Hits)
+        {
+            var events = string.Join(", ", hit.EvidenceEventIds.Select(id => $"#{numberOf[id]}"));
+            brief.AppendLine($"- {hit.RuleId} (+{hit.Points}): {hit.Explanation}. Events: {events}");
+        }
 
-        // Result parses lazily, so it is read here, where a malformed reply should fail.
-        return new InvestigatorResult(
-            response.Result, response.Usage?.InputTokenCount ?? 0, response.Usage?.OutputTokenCount ?? 0, ChatAgents.ModelOf(response, _chat));
+        brief.AppendLine().AppendLine("The flagged events:");
+        var flagged = alert.Hits.SelectMany(h => h.EvidenceEventIds).Distinct().OrderBy(id => numberOf[id]);
+        foreach (var id in flagged)
+            brief.AppendLine(InvestigatorTools.Describe(numberOf[id], timeline[numberOf[id] - 1]));
+
+        return brief.ToString();
     }
 
-    private static string Message(Enrichment enrichment, IReadOnlyList<string> reviewerReasons)
-    {
-        if (reviewerReasons.Count == 0)
-            return enrichment.Brief;
+    // The standing instructions, from config/prompts/investigator.md, embedded in this assembly.
+    private static readonly string Instructions = ReadPrompt("investigator.md");
 
-        // The Reviewer only ever saw masked text, but the reasons are masked again: every string to the LLM goes through the masker.
-        var reasons = string.Join('\n', reviewerReasons.Select(r => "- " + enrichment.Evidence.Mask(r)));
-        return $"{enrichment.Brief}\nThe Reviewer rejected your previous Finding for these reasons:\n{reasons}\nWrite a new Finding that addresses each one.";
+    private static string ReadPrompt(string name)
+    {
+        using var stream = typeof(Investigator).Assembly.GetManifestResourceStream($"prompts.{name}")
+            ?? throw new InvalidOperationException($"No prompt file config/prompts/{name} is embedded.");
+        return new StreamReader(stream).ReadToEnd();
     }
 }

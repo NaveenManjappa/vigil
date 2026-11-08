@@ -37,13 +37,3 @@ public class ApiFactory : WebApplicationFactory<Program>, IAsyncLifetime
         await _neo4j.DisposeAsync();
     }
 }
-
-/// <summary>For tests about opening and ordering Cases, which the Investigation worker would otherwise move on.</summary>
-public sealed class InvestigationsOffApiFactory : ApiFactory
-{
-    protected override void ConfigureWebHost(IWebHostBuilder builder)
-    {
-        base.ConfigureWebHost(builder);
-        builder.UseSetting("Investigation:Enabled", "false");
-    }
-}

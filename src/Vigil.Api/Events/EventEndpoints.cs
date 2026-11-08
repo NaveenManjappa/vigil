@@ -1,5 +1,3 @@
-using Vigil.Infrastructure.Events;
-
 namespace Vigil.Api.Events;
 
 public static class EventEndpoints
@@ -7,28 +5,17 @@ public static class EventEndpoints
     public static IEndpointRouteBuilder MapEventEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapPost("/events", IngestAsync)
-            .WithSummary("Ingest a batch of portal events (a single event is a batch of one) and score their accounts.");
-
-        app.MapGet("/accounts/{accountId}/timeline", async (string accountId, EventStore store, CancellationToken ct) =>
-                TypedResults.Ok(await store.GetTimelineAsync(accountId, ct)))
-            .WithSummary("Events for an account, ordered by when they occurred.");
+            .WithTags("1. Events")
+            .WithSummary("Send one Portal Event. The response says which Rules it triggered, the Alert's new Score and whether a Case opened.");
 
         return app;
     }
 
-    private static async Task<IResult> IngestAsync(PortalEventRequest[] batch, Ingestion ingestion, CancellationToken ct)
+    private static async Task<IResult> IngestAsync(PortalEventRequest request, Ingestion ingestion, CancellationToken ct)
     {
-        // Whole-batch validation: a source either sends a clean batch or fixes it and resends,
-        // so we never have to explain which half of a batch was kept.
-        var errors = batch
-            .SelectMany((e, i) => e.Validate().Select(err => (Key: $"[{i}].{err.Field}", err.Error)))
-            .GroupBy(x => x.Key, x => x.Error)
-            .ToDictionary(g => g.Key, g => g.ToArray());
-
-        if (batch.Length == 0) errors["batch"] = ["must contain at least one event"];
+        var errors = request.Validate();
         if (errors.Count > 0) return TypedResults.ValidationProblem(errors);
 
-        var result = await ingestion.IngestAsync(batch.Select(e => e.ToDomain()).ToList(), ct);
-        return TypedResults.Ok(result);
+        return TypedResults.Ok(await ingestion.IngestAsync(request.ToDomain(), ct));
     }
 }

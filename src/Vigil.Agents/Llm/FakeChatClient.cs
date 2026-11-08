@@ -6,18 +6,14 @@ using Microsoft.Extensions.AI;
 namespace Vigil.Agents;
 
 /// <summary>
-/// The free provider for Development, tests and CI. When it is given the Investigator's tools it plays a scripted
-/// Investigator: one graph tool call, then a Finding citing the refs it was shown, so the free demo still shows tool
-/// calling in the trace. When asked for a Review it plays a Reviewer that approves, and when asked for a Judgement it
-/// plays an evaluation Judge that scores every criterion 3. When asked for Generated Scenarios it writes one fraud
-/// journey that waits out R1's Window. Anything else gets a fixed reply.
+/// A free stand-in for a real model, for Development, tests and CI. It plays a scripted Investigator: first it calls the
+/// GetLinkedAccounts tool, then it answers with a fixed Finding that cites every event number in the brief. So the free
+/// walkthrough still shows a tool call in the trace, and nothing is sent to a real model.
 /// </summary>
 public sealed partial class FakeChatClient : IChatClient
 {
     public const string ProviderName = "fake";
     public const string ModelId = "fake-model";
-
-    private const string GraphTool = "QueryGraphNeighbourhood";
 
     private static readonly ChatClientMetadata Metadata = new(ProviderName, providerUri: null, defaultModelId: ModelId);
 
@@ -25,13 +21,12 @@ public sealed partial class FakeChatClient : IChatClient
         IEnumerable<ChatMessage> messages, ChatOptions? options = null, CancellationToken cancellationToken = default)
     {
         var history = messages.ToList();
-        var isInvestigator = options?.Tools?.Any(t => t.Name == GraphTool) == true;
-        var reply = Asks(options, "approved") ? new ChatMessage(ChatRole.Assistant, """{"approved":true,"reasons":[]}""")
-            : Asks(options, "groundedClaims") ? new ChatMessage(ChatRole.Assistant, Judgement)
-            : Asks(options, "scenarios") ? new ChatMessage(ChatRole.Assistant, GeneratedScenario)
-            : !isInvestigator ? new ChatMessage(ChatRole.Assistant, "Fake provider: no model was called.")
-            : history.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Any() ? new ChatMessage(ChatRole.Assistant, Finding(history))
-            : new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("fake-call-1", GraphTool)]);
+        var hasTools = options?.Tools?.Count > 0;
+        var toolAlreadyCalled = history.SelectMany(m => m.Contents).OfType<FunctionResultContent>().Any();
+
+        var reply = !hasTools ? new ChatMessage(ChatRole.Assistant, "Fake provider: no model was called.")
+            : !toolAlreadyCalled ? new ChatMessage(ChatRole.Assistant, [new FunctionCallContent("fake-call-1", "GetLinkedAccounts")])
+            : new ChatMessage(ChatRole.Assistant, Finding(history));
 
         return Task.FromResult(new ChatResponse(reply)
         {
@@ -40,68 +35,23 @@ public sealed partial class FakeChatClient : IChatClient
         });
     }
 
-    // The Reviewer, the evaluation Judge and the Scenario Generator are recognised by the contract they are asked to
-    // fill (a Review has "approved", a Judgement "groundedClaims", a generator reply "scenarios"), not by prompt
-    // wording, so a new prompt version still works.
-    private static bool Asks(ChatOptions? options, string property) =>
-        options?.ResponseFormat is ChatResponseFormatJson { Schema: { } schema }
-        && schema.TryGetProperty("properties", out var properties)
-        && properties.TryGetProperty(property, out _);
-
-    private const string Judgement = """
-        {"groundedClaims":{"score":3,"reason":"Fake provider: no model judged this Finding."},
-         "soundReasoning":{"score":3,"reason":"Fake provider: no model judged this Finding."},
-         "proportionateRecommendation":{"score":3,"reason":"Fake provider: no model judged this Finding."},
-         "clarity":{"score":3,"reason":"Fake provider: no model judged this Finding."}}
-        """;
-
-    // Labelled as the Fake's own, so it is never mistaken for a red-team finding: a real run replaces it. The gaps
-    // sit just outside R1's 60-minute and R4's 7-day Windows, so only R0's first sighting scores.
-    private const string GeneratedScenario = """
-        {"scenarios":[{
-          "name": "fake-late-mfa-slow-cash-out",
-          "description": "Scripted by the Fake provider. A fraudster resets the password, enrols their own MFA 65 minutes later, changes the bank details the next day and sells a week and an hour after that.",
-          "accountId": "ACC-GEN-FAKE-LATE-MFA",
-          "label": { "kind": "Ato", "intent": "Fake-written placeholder, to be replaced by the Azure run: MFA 65 minutes after the reset misses R1's 60-minute Window, and the sale waits out R4." },
-          "baseline": { "device": "D-GEN-HOLDER", "ip": "203.0.113.90", "country": "GB" },
-          "actors": { "fraudster": { "device": "D-GEN-1", "ip": "198.51.100.90", "country": "GB" } },
-          "steps": [
-            { "after": "0m", "type": "PasswordReset", "as": "fraudster" },
-            { "after": "1h5m", "type": "MfaEnrolled", "as": "fraudster" },
-            { "after": "1d", "type": "BankDetailsChanged", "as": "fraudster" },
-            { "after": "8d1h", "type": "SaleRequested", "as": "fraudster" }
-          ]
-        }]}
-        """;
-
-    // Cites every E-ref in the brief and each graph fact that touches a Confirmed Fraud Account, so the Finding only
-    // ever cites refs that exist and the code validation step passes.
     private static string Finding(List<ChatMessage> history)
     {
         var brief = history.First(m => m.Role == ChatRole.User).Text;
-        var graphFacts = history.SelectMany(m => m.Contents).OfType<FunctionResultContent>()
-            .SelectMany(r => (r.Result?.ToString() ?? "").Split('\n'))
-            .Where(line => line.Contains("Confirmed Fraud"));
-        var evidence = EvidenceRef().Matches(brief).Concat(graphFacts.Select(line => EvidenceRef().Match(line)))
-            .Where(m => m.Success).Select(m => m.Value).Distinct().ToList();
+        var events = EventNumber().Matches(brief).Select(m => int.Parse(m.Groups[1].Value)).Distinct().Order();
 
         return JsonSerializer.Serialize(new
         {
             verdict = "LikelyAccountTakeover",
             confidence = "High",
-            summary = $"Scripted Finding from the Fake provider: the activity on {AccountPseudonym().Match(brief).Value} came " +
-                      "from a device and country the Holder does not use, and that device is shared with a Confirmed Fraud Account.",
+            summary = "Fake provider, no model was called: a scripted Finding that cites every flagged event.",
             recommendation = "BlockBankChanges",
-            evidence,
+            events,
         });
     }
 
-    [GeneratedRegex(@"\b[EG]-\d+\b")]
-    private static partial Regex EvidenceRef();
-
-    // Named in the summary so the analyst-facing read visibly unmasks it.
-    [GeneratedRegex(@"ACCOUNT-\d+")]
-    private static partial Regex AccountPseudonym();
+    [GeneratedRegex(@"#(\d+)")]
+    private static partial Regex EventNumber();
 
     public async IAsyncEnumerable<ChatResponseUpdate> GetStreamingResponseAsync(
         IEnumerable<ChatMessage> messages, ChatOptions? options = null,

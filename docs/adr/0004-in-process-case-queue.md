@@ -1,5 +1,7 @@
 # Investigations run from an in-process queue behind ICaseQueue
 
+> **Superseded by [ADR-0017](0017-simplify-to-a-walkable-demo.md).** Kept as a record of the full design, which is tagged `v1-full`.
+
 When ingestion opens a Case, it puts the CaseId and the request's trace context on `ICaseQueue`, and an `InvestigationWorker` background service runs that Case's one Investigation. The queue is a bounded `System.Threading.Channels` channel in the API process (capacity 1000; a full queue makes ingestion wait rather than grow memory). The interface is the seam for a durable broker later, such as Azure Service Bus, without touching ingestion or the worker.
 
 Cases are queued only after the ingest transaction commits, and only Cases that the transaction opened. A rolled-back batch therefore never starts an Investigation, and an Alert that later rises to Critical raises its Case's priority without queuing it again. Under the retrying execution strategy each attempt collects its own list of opened Cases, and only the committed attempt's list is queued.

@@ -1,12 +1,12 @@
 # Graph primer: the Cypher Vigil uses
 
-One page on the Neo4j ideas behind the Projection (ADR-0015), using Vigil's own data. Run the queries in Neo4j Browser at http://localhost:7474 after the simulator has posted the Scenarios.
+One page on the Neo4j ideas behind Vigil's graph, using Vigil's own data. Run the queries in Neo4j Browser at http://localhost:7474 after step 8 of the [user guide's walkthrough](user-guide.md#4-walk-through-margarets-takeover).
 
 ## Nodes and relationships
 
 A **node** is a thing, written in round brackets with a label and properties: `(:Account {accountId: 'ACC-MARGARET'})`, `(:Device {value: 'D-77'})`. Every identifier node keeps its key in `value`, so a query can treat devices, emails and bank accounts alike.
 
-A **relationship** joins two nodes, always has a direction and exactly one type, and can carry properties: `(:Account)-[:USED_DEVICE {firstSeen: ...}]->(:Device)`. Vigil's relationship types are OWNS, USED_DEVICE, SEEN_FROM, HAS_EMAIL, HAS_PHONE, PAYS_TO and LIVES_AT.
+A **relationship** joins two nodes, always has a direction and exactly one type, and can carry properties. Vigil's carry none: `(:Account)-[:USED_DEVICE]->(:Device)`. A Confirmed Fraud Account has the node property `confirmedFraud: true`. Vigil's relationship types are OWNS, USED_DEVICE, SEEN_FROM, HAS_EMAIL, HAS_PHONE, PAYS_TO and LIVES_AT.
 
 ## MATCH: find a pattern
 
@@ -14,13 +14,12 @@ A **relationship** joins two nodes, always has a direction and exactly one type,
 
 ```cypher
 MATCH (a:Account {accountId: 'ACC-MARGARET'})-[r]->(id)
-RETURN type(r), labels(id)[0], id.value, r.firstSeen
-ORDER BY r.firstSeen
+RETURN type(r), labels(id)[0], id.value
 ```
 
 ## Hops
 
-A **hop** is one relationship crossed. Account to Device is one hop. Account to Device and back to another Account is two hops, and that is the shape Stage 2's graph Rules use: "which other Accounts share something with this one?"
+A **hop** is one relationship crossed. Account to Device is one hop. Account to Device and back to another Account is two hops, and that is the shape the graph Rules G1 and G2 use: "which other Accounts share something with this one?"
 
 ```cypher
 MATCH (a:Account {accountId: 'ACC-MARGARET'})-[:USED_DEVICE]->(d:Device)<-[:USED_DEVICE]-(other:Account)
@@ -60,11 +59,10 @@ ORDER BY accounts DESC
 ```cypher
 MERGE (a:Account {accountId: 'ACC-MARGARET'})
 MERGE (d:Device {value: 'D-77'})
-MERGE (a)-[r:USED_DEVICE]->(d)
-  ON CREATE SET r.firstSeen = datetime('2026-09-21T09:00Z')
+MERGE (a)-[:USED_DEVICE]->(d)
 ```
 
-Merge nodes first, then the relationship between them. `MERGE (a:Account {...})-[:USED_DEVICE]->(d:Device {...})` in one line would create a second D-77 if this Account had never used it, because MERGE matches the whole pattern or creates the whole pattern. `ON CREATE SET` runs only when MERGE created something; `ON MATCH SET` only when it found it.
+Merge nodes first, then the relationship between them. `MERGE (a:Account {...})-[:USED_DEVICE]->(d:Device {...})` in one line would create a second D-77 if this Account had never used it, because MERGE matches the whole pattern or creates the whole pattern.
 
 ## Uniqueness constraints
 
@@ -76,4 +74,4 @@ SHOW CONSTRAINTS
 
 ## Starting over
 
-The Projection is disposable: `MATCH (n) DETACH DELETE n` empties it (DETACH removes a node's relationships too), and the rebuild-graph command (see the [runbook](runbook.md)) projects it again from Postgres. The command deletes in chunks with `CALL (n) { DETACH DELETE n } IN TRANSACTIONS`, so a large graph is never held in one transaction.
+`MATCH (n) DETACH DELETE n` empties the graph (DETACH removes a node's relationships too). `POST /reset` runs it, and empties Postgres too.

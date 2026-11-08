@@ -3,9 +3,12 @@ using Vigil.Domain.Events;
 namespace Vigil.Api.Events;
 
 /// <summary>
-/// Wire shape for one event. Everything is nullable and Type is a string so that bad input
-/// reaches our validation and gets a precise error, instead of failing inside JSON binding.
+/// The body of <c>POST /events</c>: one Portal Event. Everything is nullable and Type is a string, so bad input reaches
+/// our validation and gets a precise error instead of failing inside JSON binding.
 /// </summary>
+/// <param name="EventId">Optional: Vigil makes one up when it is missing. Send the same one twice and the second is ignored.</param>
+/// <param name="OccurredAt">When it happened at the source. Required, because the rules measure time between events.</param>
+/// <param name="Channel">Optional: Web when missing.</param>
 public sealed record PortalEventRequest(
     Guid? EventId,
     string? AccountId,
@@ -18,27 +21,25 @@ public sealed record PortalEventRequest(
     string? Channel,
     Dictionary<string, string>? Attributes)
 {
-    public IEnumerable<(string Field, string Error)> Validate()
+    public Dictionary<string, string[]> Validate()
     {
-        if (EventId is null || EventId == Guid.Empty) yield return (nameof(EventId), "is required");
-        if (string.IsNullOrWhiteSpace(AccountId)) yield return (nameof(AccountId), "is required");
-        if (string.IsNullOrWhiteSpace(HolderId)) yield return (nameof(HolderId), "is required");
-        if (OccurredAt is null) yield return (nameof(OccurredAt), "is required");
-        if (string.IsNullOrWhiteSpace(Channel)) yield return (nameof(Channel), "is required");
+        var errors = new Dictionary<string, string[]>();
+        if (string.IsNullOrWhiteSpace(AccountId)) errors["accountId"] = ["is required"];
+        if (string.IsNullOrWhiteSpace(HolderId)) errors["holderId"] = ["is required"];
+        if (OccurredAt is null) errors["occurredAt"] = ["is required"];
+        if (ParseType() is null) errors["type"] = [$"'{Type}' is not one of: {string.Join(", ", Enum.GetNames<EventType>())}"];
         if (Country is not null && (Country.Length != 2 || !Country.All(char.IsAsciiLetterUpper)))
-            yield return (nameof(Country), "must be an ISO 3166-1 alpha-2 code, e.g. GB");
-        if (ParseType() is null) yield return (nameof(Type), $"'{Type}' is not a known event type");
+            errors["country"] = ["must be a two-letter ISO 3166-1 code, e.g. GB"];
+        return errors;
     }
 
     // Enum.TryParse also accepts numbers ("3") and undefined values, which we must not let through.
     private EventType? ParseType() =>
-        !string.IsNullOrWhiteSpace(Type) && !char.IsDigit(Type[0]) && Enum.TryParse<EventType>(Type, out var t)
-            ? t
-            : null;
+        !string.IsNullOrWhiteSpace(Type) && !char.IsDigit(Type[0]) && Enum.TryParse<EventType>(Type, out var t) ? t : null;
 
     /// <summary>Only call after <see cref="Validate"/> returned no errors.</summary>
     public PortalEvent ToDomain() => new(
-        EventId!.Value,
+        EventId ?? Guid.NewGuid(),
         AccountId!,
         HolderId!,
         ParseType()!.Value,
@@ -46,6 +47,6 @@ public sealed record PortalEventRequest(
         DeviceId,
         IpAddress,
         Country,
-        Channel!,
+        string.IsNullOrWhiteSpace(Channel) ? "Web" : Channel,
         Attributes ?? []);
 }
